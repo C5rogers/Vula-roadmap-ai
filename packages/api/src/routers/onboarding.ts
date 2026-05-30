@@ -313,6 +313,17 @@ export const onboardingRouter = {
     .handler(async ({ input, context }) => {
       const userId = context.session.user.id;
 
+      const roadmapAccess = await prisma.roadmap.findFirst({
+        where: {
+          id: input.roadmapId,
+          OR: [{ userId }, { enrollments: { some: { userId } } }],
+        },
+        select: { id: true },
+      });
+
+      if (!roadmapAccess) {
+        throw new Error("Roadmap not found or you do not have access to it.");
+      }
       // Fetch all lessons within the chapters of this roadmap
       const lessons = await prisma.lesson.findMany({
         where: {
