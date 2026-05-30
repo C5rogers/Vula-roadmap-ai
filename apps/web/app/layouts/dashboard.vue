@@ -18,6 +18,11 @@ const navLinks = [
     icon: "i-lucide-map",
   },
   {
+    label: "Magic Create",
+    to: "/magic-create",
+    icon: "i-lucide-sparkles",
+  },
+  {
     label: "Schedule",
     to: "/schedule",
     icon: "i-lucide-calendar-days",
@@ -103,54 +108,16 @@ const handleSignOut = async () => {
         </NuxtLink>
       </nav>
 
-      <!-- User Profile at bottom -->
-      <div
-        class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50"
-      >
-        <ClientOnly>
-          <div
-            v-if="session?.data"
-            class="flex items-center justify-between group"
-          >
-            <div class="flex items-center gap-3 min-w-0">
-              <UAvatar
-                :src="session.data.user.image || undefined"
-                :alt="session.data.user.name || undefined"
-                size="md"
-                class="ring-1 ring-stone-200 dark:ring-stone-800"
-              />
-              <div class="flex flex-col min-w-0 text-left">
-                <span
-                  class="text-xs font-semibold text-stone-700 dark:text-stone-200 truncate"
-                >
-                  {{ session.data.user.name }}
-                </span>
-                <span
-                  class="text-[10px] text-stone-400 dark:text-stone-500 truncate"
-                >
-                  {{ session.data.user.email }}
-                </span>
-              </div>
-            </div>
-
-            <UButton
-              variant="ghost"
-              color="neutral"
-              icon="i-lucide-log-out"
-              class="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-200 rounded-xl hover:bg-stone-200 dark:hover:bg-stone-800"
-              @click="handleSignOut"
-            />
-          </div>
-          <template #fallback>
-            <div class="flex items-center gap-3">
-              <USkeleton class="h-9 w-9 rounded-full" />
-              <div class="flex flex-col gap-1.5 flex-grow">
-                <USkeleton class="h-3 w-20" />
-                <USkeleton class="h-2 w-28" />
-              </div>
-            </div>
-          </template>
-        </ClientOnly>
+      <!-- Sign Out at bottom of sidebar -->
+      <div class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
+        <UButton
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-log-out"
+          label="Sign Out"
+          class="w-full justify-start font-semibold rounded-xl text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+          @click="handleSignOut"
+        />
       </div>
     </aside>
 
@@ -178,20 +145,35 @@ const handleSignOut = async () => {
 
         <div class="flex items-center gap-4">
           <UColorModeButton />
-
-          <!-- Compact profile logout only on mobile -->
-          <div class="lg:hidden">
-            <ClientOnly>
-              <UButton
-                v-if="session?.data"
-                variant="ghost"
-                color="neutral"
-                icon="i-lucide-log-out"
-                class="rounded-xl"
-                @click="handleSignOut"
+          
+          <ClientOnly>
+            <!-- User Profile in top right -->
+            <div v-if="session?.data" class="flex items-center gap-3">
+              <div class="hidden sm:flex flex-col text-right">
+                <span class="text-xs font-semibold text-stone-700 dark:text-stone-200">
+                  {{ session.data.user.name }}
+                </span>
+                <span class="text-[10px] text-stone-400 dark:text-stone-500">
+                  {{ session.data.user.email }}
+                </span>
+              </div>
+              <UAvatar
+                :src="session.data.user.image || undefined"
+                :alt="session.data.user.name || undefined"
+                size="sm"
+                class="ring-1 ring-stone-200 dark:ring-stone-800"
               />
-            </ClientOnly>
-          </div>
+            </div>
+            <template #fallback>
+              <div class="flex items-center gap-3">
+                <div class="hidden sm:flex flex-col gap-1 items-end">
+                  <div class="h-3 w-16 rounded bg-stone-200 dark:bg-stone-800 animate-pulse" />
+                  <div class="h-2 w-24 rounded bg-stone-200 dark:bg-stone-800 animate-pulse" />
+                </div>
+                <div class="h-8 w-8 rounded-full bg-stone-200 dark:bg-stone-800 animate-pulse" />
+              </div>
+            </template>
+          </ClientOnly>
         </div>
       </header>
 
@@ -260,45 +242,16 @@ const handleSignOut = async () => {
               </nav>
             </div>
 
-            <!-- User profile bottom bar for mobile drawer -->
-            <div
-              class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50"
-            >
-              <ClientOnly>
-                <div
-                  v-if="session?.data"
-                  class="flex items-center justify-between"
-                >
-                  <div class="flex items-center gap-3 min-w-0">
-                    <UAvatar
-                      :src="session.data.user.image || undefined"
-                      :alt="session.data.user.name || undefined"
-                      size="sm"
-                      class="ring-1 ring-stone-200 dark:ring-stone-800"
-                    />
-                    <div class="flex flex-col min-w-0 text-left">
-                      <span
-                        class="text-xs font-semibold text-stone-700 dark:text-stone-200 truncate"
-                      >
-                        {{ session.data.user.name }}
-                      </span>
-                      <span
-                        class="text-[10px] text-stone-400 dark:text-stone-500 truncate"
-                      >
-                        {{ session.data.user.email }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <UButton
-                    variant="ghost"
-                    color="neutral"
-                    icon="i-lucide-log-out"
-                    class="rounded-xl hover:bg-stone-200 dark:hover:bg-stone-800"
-                    @click="handleSignOut"
-                  />
-                </div>
-              </ClientOnly>
+            <!-- Sign Out bottom bar for mobile drawer -->
+            <div class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
+              <UButton
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-log-out"
+                label="Sign Out"
+                class="w-full justify-start font-semibold rounded-xl text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+                @click="handleSignOut"
+              />
             </div>
           </div>
         </Transition>

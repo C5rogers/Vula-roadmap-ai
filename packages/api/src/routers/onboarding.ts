@@ -552,9 +552,20 @@ export const onboardingRouter = {
           }
 
           // Accumulate study time by type
-          const lessonType = lesson.type || "TEXT";
+          let lessonType = "TEXT";
+          if (lesson.content) {
+            const trimmed = lesson.content.trim();
+            if (/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(trimmed)) {
+              lessonType = "VIDEO";
+            } else if (trimmed.endsWith(".mp3") || trimmed.includes(".mp3?")) {
+              lessonType = "AUDIO";
+            } else if (trimmed.endsWith(".pdf") || trimmed.includes(".pdf?")) {
+              lessonType = "PDF";
+            }
+          }
+          const time = userProgress.timeSpent || 0;
           timeSpentByType[lessonType] =
-            (timeSpentByType[lessonType] || 0) + userProgress.timeSpent;
+            (timeSpentByType[lessonType] || 0) + time;
         }
       }
 

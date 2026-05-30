@@ -313,9 +313,24 @@ function savePdfProgress() {
   });
 }
 
+function getLessonType(lesson: any): "TEXT" | "VIDEO" | "AUDIO" | "PDF" {
+  if (!lesson?.content) return "TEXT";
+  const content = lesson.content.trim();
+  if (/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(content)) {
+    return "VIDEO";
+  }
+  if (content.endsWith(".mp3") || content.includes(".mp3?")) {
+    return "AUDIO";
+  }
+  if (content.endsWith(".pdf") || content.includes(".pdf?")) {
+    return "PDF";
+  }
+  return "TEXT";
+}
+
 // YouTube Embed helper
 const youtubeEmbedUrl = computed(() => {
-  if (!activeLesson.value?.content || activeLesson.value.type !== "VIDEO")
+  if (!activeLesson.value?.content || getLessonType(activeLesson.value) !== "VIDEO")
     return null;
   const url = activeLesson.value.content.trim();
 
@@ -348,7 +363,7 @@ const videoWatchUrl = computed(() => {
 
 // Audio HTML5 stream helper (lo-fi ambient backdrop stream fallback)
 const audioStreamUrl = computed(() => {
-  if (!activeLesson.value?.content || activeLesson.value.type !== "AUDIO")
+  if (!activeLesson.value?.content || getLessonType(activeLesson.value) !== "AUDIO")
     return null;
   const url = activeLesson.value.content.trim();
   if (
@@ -618,6 +633,8 @@ function parseMarkdown(md: string): string {
   return marked.parse(md) as string;
 }
 
+const isVoiceMentorOpen = ref(false);
+const isRoastModeOpen = ref(false);
 const showMobileChat = ref(false);
 const isMobileSyllabusOpen = ref(false);
 
@@ -1001,11 +1018,11 @@ function getYouTubeEmbedUrl(url: string): string {
                       <UIcon
                         v-else
                         :name="
-                          lesson.type === 'VIDEO'
+                          getLessonType(lesson) === 'VIDEO'
                             ? 'i-lucide-video'
-                            : lesson.type === 'AUDIO'
+                            : getLessonType(lesson) === 'AUDIO'
                               ? 'i-lucide-headphones'
-                              : lesson.type === 'PDF'
+                              : getLessonType(lesson) === 'PDF'
                                 ? 'i-lucide-file'
                                 : 'i-lucide-file-text'
                         "
@@ -1094,11 +1111,11 @@ function getYouTubeEmbedUrl(url: string): string {
                       <UIcon
                         v-else
                         :name="
-                          lesson.type === 'VIDEO'
+                          getLessonType(lesson) === 'VIDEO'
                             ? 'i-lucide-video'
-                            : lesson.type === 'AUDIO'
+                            : getLessonType(lesson) === 'AUDIO'
                               ? 'i-lucide-headphones'
-                              : lesson.type === 'PDF'
+                              : getLessonType(lesson) === 'PDF'
                                 ? 'i-lucide-file'
                                 : 'i-lucide-file-text'
                         "
@@ -1659,6 +1676,26 @@ function getYouTubeEmbedUrl(url: string): string {
                 v-else-if="activeTab === 'quiz'"
                 class="space-y-4 animate-fade-in"
               >
+                <!-- Roast Mode Call To Action Banner -->
+                <div class="p-4 bg-red-950/10 border border-red-900/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                  <div class="space-y-1 text-left">
+                    <span class="text-[10px] font-black text-red-500 uppercase tracking-widest flex items-center gap-1.5 animate-pulse">
+                      <UIcon name="i-lucide-flame" /> Challenge Mode
+                    </span>
+                    <h3 class="text-sm font-bold text-white">Roast My Knowledge</h3>
+                    <p class="text-[11px] text-stone-400 max-w-md">
+                      Test your true understanding under extreme pressure. Get roasted by a senior mock interviewer with a 30-second countdown.
+                    </p>
+                  </div>
+                  <UButton
+                    color="error"
+                    icon="i-lucide-flame"
+                    label="Activate Roast"
+                    class="rounded-xl font-bold cursor-pointer bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95 transition-all text-white self-start sm:self-auto shrink-0"
+                    @click="isRoastModeOpen = true"
+                  />
+                </div>
+
                 <div v-if="activeLesson.quizzes?.length">
                   <div
                     v-for="quiz in activeLesson.quizzes"
@@ -1798,20 +1835,30 @@ function getYouTubeEmbedUrl(url: string): string {
       >
         <!-- AI Coach Header -->
         <div
-          class="bg-elevated/50 px-4 py-3 border-b border-default flex items-center gap-2.5"
+          class="bg-elevated/50 px-4 py-3 border-b border-default flex items-center justify-between gap-2.5"
         >
-          <div class="rounded-full p-2 bg-primary/10 text-primary">
-            <UIcon name="i-lucide-sparkles" class="h-4 w-4" />
-          </div>
-          <div>
-            <div class="text-sm font-bold text-highlighted">
-              AI Learning Coach
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="rounded-full p-2 bg-primary/10 text-primary shrink-0">
+              <UIcon name="i-lucide-sparkles" class="h-4 w-4" />
             </div>
-            <div class="text-[10px] text-muted flex items-center gap-1 mt-0.5">
-              <span class="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-              Tuned to current lesson context
+            <div class="min-w-0">
+              <div class="text-sm font-bold text-highlighted truncate">
+                AI Learning Coach
+              </div>
+              <div class="text-[10px] text-muted flex items-center gap-1 mt-0.5">
+                <span class="h-1.5 w-1.5 rounded-full bg-success animate-pulse shrink-0" />
+                Tuned to current lesson context
+              </div>
             </div>
           </div>
+          <UButton
+            icon="i-lucide-mic"
+            color="primary"
+            variant="soft"
+            class="rounded-xl cursor-pointer hover:scale-105 shadow-sm"
+            size="sm"
+            @click="isVoiceMentorOpen = true"
+          />
         </div>
 
         <!-- Chat messages view -->
@@ -1940,6 +1987,23 @@ function getYouTubeEmbedUrl(url: string): string {
       icon="i-lucide-sparkles"
       class="lg:hidden fixed bottom-6 right-6 z-40 rounded-full shadow-xl shadow-amber-500/25 h-14 w-14 flex items-center justify-center font-bold"
       @click="showMobileChat = true"
+    />
+
+    <!-- Voice AI Mentor Overlay Modal -->
+    <VoiceMentor
+      v-if="isVoiceMentorOpen"
+      :activeLessonTitle="activeLesson?.title"
+      :contextPrompt="activeLesson?.content"
+      @close="isVoiceMentorOpen = false"
+      @newMessage="(msg) => chatMessages.push({ id: 'voice-' + Date.now(), role: msg.role, parts: [{ type: 'text', text: msg.content }] })"
+    />
+
+    <!-- Roast My Knowledge Overlay Modal -->
+    <RoastMode
+      v-if="isRoastModeOpen"
+      :activeLessonTitle="activeLesson?.title"
+      :contextPrompt="activeLesson?.content"
+      @close="isRoastModeOpen = false"
     />
 
     <!-- Mobile Chat Slide-over Drawer -->
