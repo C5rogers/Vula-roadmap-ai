@@ -12,6 +12,10 @@ const onboardingInputSchema = z.object({
   weeklyCommitment: z.number().int().min(1), // in hours
   preferredDuration: z.string().min(1), // e.g., "4 weeks"
   additionalNotes: z.string().optional(),
+  availabilityDays: z
+    .array(z.string())
+    .default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
+  availabilityHours: z.number().int().min(1).max(24).default(2),
 });
 
 // Reuse schemas for nested Quizzes
@@ -171,12 +175,154 @@ interface GenerationState {
 }
 const generationProgress = new Map<string, GenerationState>();
 
+async function generateRoadmapSchedule(
+  userId: string,
+  roadmapId: string,
+  availabilityDays: string[],
+  availabilityHours: number,
+) {
+  // 1. Get all lessons of the new roadmap in order
+  const lessons = await prisma.lesson.findMany({
+    where: {
+      chapter: {
+        roadmapId,
+      },
+    },
+    orderBy: [{ chapter: { order: "asc" } }, { order: "asc" }],
+  });
+
+  if (lessons.length === 0) return;
+
+  // 2. Get existing scheduled lessons of OTHER roadmaps
+  const existingLessons = await prisma.lesson.findMany({
+    where: {
+      chapter: {
+        roadmap: {
+          userId,
+          id: { not: roadmapId },
+        },
+      },
+      scheduledDate: { not: null },
+    },
+    select: {
+      scheduledDate: true,
+    },
+  });
+
+  // 3. Populate existing lessons count per day
+  const lessonsCount: Record<string, number> = {};
+  for (const el of existingLessons) {
+    if (el.scheduledDate) {
+      const dateKey = el.scheduledDate.toISOString().split("T")[0] ?? "";
+      if (dateKey) {
+        lessonsCount[dateKey] = (lessonsCount[dateKey] ?? 0) + 1;
+      }
+    }
+  }
+
+  // 4. Match day names
+  const DAY_NAMES = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const daysLower = availabilityDays.map((d) => d.toLowerCase());
+
+  let currentDate = new Date();
+  // Start scheduling at 9:00 AM
+  currentDate.setHours(9, 0, 0, 0);
+
+  for (const lesson of lessons) {
+    let scheduled = false;
+    let loopCount = 0;
+    while (!scheduled && loopCount < 365) {
+      const dayName = (
+        DAY_NAMES[currentDate.getDay()] ?? "Monday"
+      ).toLowerCase();
+      if (daysLower.includes(dayName)) {
+        const dateKey = currentDate.toISOString().split("T")[0] ?? "";
+        if (dateKey) {
+          const currentCount = lessonsCount[dateKey] ?? 0;
+          if (currentCount < availabilityHours) {
+            // Schedule it!
+            const scheduledTime = new Date(currentDate);
+            // Offset hour by how many lessons already scheduled
+            scheduledTime.setHours(9 + currentCount, 0, 0, 0);
+
+            await prisma.lesson.update({
+              where: { id: lesson.id },
+              data: {
+                scheduledDate: scheduledTime,
+              },
+            });
+
+            lessonsCount[dateKey] = currentCount + 1;
+            scheduled = true;
+          } else {
+            // Day is full, move to next day
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        } else {
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+      } else {
+        // Not an available day of the week, move to next day
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      loopCount++;
+    }
+  }
+}
+
 export const onboardingRouter = {
   getProfile: protectedProcedure.handler(async ({ context }) => {
     const userId = context.session.user.id;
     return await prisma.userProfile.findUnique({
       where: { userId },
     });
+  }),
+
+  getSchedule: protectedProcedure.handler(async ({ context }) => {
+    const userId = context.session.user.id;
+    // Get all lessons across all user's roadmaps that have a scheduledDate
+    const lessons = await prisma.lesson.findMany({
+      where: {
+        chapter: {
+          roadmap: {
+            userId,
+          },
+        },
+        scheduledDate: { not: null },
+      },
+      include: {
+        progress: {
+          where: { userId },
+        },
+        chapter: {
+          include: {
+            roadmap: true,
+          },
+        },
+      },
+      orderBy: { scheduledDate: "asc" },
+    });
+
+    return lessons.map((lesson) => ({
+      id: lesson.id,
+      title: lesson.title,
+      type: lesson.type,
+      scheduledDate: lesson.scheduledDate,
+      chapterTitle: lesson.chapter.title,
+      roadmapId: lesson.chapter.roadmap.id,
+      roadmapTitle: lesson.chapter.roadmap.title,
+      isCompleted: lesson.progress?.[0]?.isCompleted ?? false,
+      completedAt: lesson.progress?.[0]?.completedAt ?? null,
+      timeSpent: lesson.progress?.[0]?.timeSpent ?? 0,
+    }));
   }),
 
   getRoadmaps: protectedProcedure.handler(async ({ context }) => {
@@ -600,6 +746,8 @@ export const onboardingRouter = {
           weeklyCommitment: input.weeklyCommitment,
           preferredDuration: input.preferredDuration,
           additionalNotes: input.additionalNotes,
+          availabilityDays: input.availabilityDays,
+          availabilityHours: input.availabilityHours,
         },
         create: {
           userId,
@@ -609,6 +757,8 @@ export const onboardingRouter = {
           weeklyCommitment: input.weeklyCommitment,
           preferredDuration: input.preferredDuration,
           additionalNotes: input.additionalNotes,
+          availabilityDays: input.availabilityDays,
+          availabilityHours: input.availabilityHours,
         },
       });
 
@@ -822,6 +972,38 @@ Return the result structured according to the schema.`;
               status: "ENROLLED",
             },
           });
+
+          // Generate Roadmap Schedule based on user availability and previously generated schedules!
+          try {
+            const userProfile = await prisma.userProfile.findUnique({
+              where: { userId },
+            });
+            if (
+              userProfile &&
+              userProfile.availabilityDays &&
+              userProfile.availabilityHours
+            ) {
+              const rawDays = userProfile.availabilityDays;
+              const days = Array.isArray(rawDays) ? (rawDays as string[]) : [];
+              const hours =
+                typeof userProfile.availabilityHours === "number"
+                  ? userProfile.availabilityHours
+                  : 2;
+              if (days.length > 0) {
+                await generateRoadmapSchedule(
+                  userId,
+                  savedRoadmap.id,
+                  days,
+                  hours,
+                );
+              }
+            }
+          } catch (scheduleErr) {
+            console.error(
+              "Failed to generate schedule for roadmap:",
+              scheduleErr,
+            );
+          }
 
           // Done! Complete background state
           generationProgress.set(userId, {

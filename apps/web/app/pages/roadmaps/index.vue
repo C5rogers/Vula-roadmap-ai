@@ -85,7 +85,20 @@ const onboardingForm = ref({
   weeklyCommitment: 5,
   preferredDuration: "4 weeks",
   additionalNotes: "",
+  availabilityDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+  availabilityHours: 2,
 });
+
+function toggleAvailabilityDay(day: string) {
+  const idx = onboardingForm.value.availabilityDays.indexOf(day);
+  if (idx > -1) {
+    if (onboardingForm.value.availabilityDays.length > 1) {
+      onboardingForm.value.availabilityDays.splice(idx, 1);
+    }
+  } else {
+    onboardingForm.value.availabilityDays.push(day);
+  }
+}
 
 const loadingMessages = [
   "Mapping your custom learning path...",
@@ -140,6 +153,8 @@ function startNewRoadmap() {
     weeklyCommitment: 5,
     preferredDuration: "4 weeks",
     additionalNotes: "",
+    availabilityDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+    availabilityHours: 2,
   };
 }
 
@@ -200,14 +215,15 @@ onUnmounted(() => {
     <!-- --- Step-by-Step Onboarding Form View --- -->
     <div
       v-else-if="
-        (!profileQuery.data.value || isCreatingRoadmap) &&
-        !onboardingMutation.isSuccess.value
+        isGenerating ||
+        ((!profileQuery.data.value || isCreatingRoadmap) &&
+          !onboardingMutation.isSuccess.value)
       "
       class="mx-auto max-w-2xl py-6"
     >
       <!-- Loading Generation state -->
       <div
-        v-if="onboardingMutation.isPending.value"
+        v-if="onboardingMutation.isPending.value || isGenerating"
         class="flex flex-col items-center justify-center text-center py-20 px-4 space-y-6"
       >
         <div class="relative flex items-center justify-center">
@@ -232,18 +248,28 @@ onUnmounted(() => {
           <p
             class="text-stone-500 dark:text-stone-400 text-sm max-w-md mx-auto h-8 flex items-center justify-center font-medium"
           >
-            {{ loadingMessages[currentLoadingMessageIdx] }}
+            {{
+              isGenerating
+                ? generationMessage
+                : loadingMessages[currentLoadingMessageIdx]
+            }}
           </p>
         </div>
         <div
-          class="w-full max-w-xs bg-stone-200 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden"
+          class="w-full max-w-xs bg-stone-200 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden animate-pulse"
         >
           <div
-            class="bg-amber-500 h-full rounded-full animate-pulse"
+            class="bg-amber-500 h-full rounded-full transition-all duration-300"
             :style="{
-              width: `${((currentLoadingMessageIdx + 1) / loadingMessages.length) * 100}%`,
+              width: `${isGenerating ? generationProgressPercent : ((currentLoadingMessageIdx + 1) / loadingMessages.length) * 100}%`,
             }"
           ></div>
+        </div>
+        <div
+          v-if="isGenerating"
+          class="text-xs text-amber-500 font-extrabold font-mono tracking-wider"
+        >
+          {{ generationProgressPercent }}% Complete
         </div>
       </div>
 
@@ -363,6 +389,61 @@ onUnmounted(() => {
                   ]"
                   class="w-full"
                 />
+              </div>
+            </div>
+
+            <!-- New Study Availability inputs -->
+            <div class="space-y-2 pt-2">
+              <label
+                class="text-sm font-bold text-stone-900 dark:text-stone-100"
+                >Study Availability (Days)</label
+              >
+              <div class="flex flex-wrap gap-1.5">
+                <UButton
+                  v-for="day in [
+                    'Monday',
+                    'Tuesday',
+                    'Wednesday',
+                    'Thursday',
+                    'Friday',
+                    'Saturday',
+                    'Sunday',
+                  ]"
+                  :key="day"
+                  :color="
+                    onboardingForm.availabilityDays.includes(day)
+                      ? 'primary'
+                      : 'neutral'
+                  "
+                  :variant="
+                    onboardingForm.availabilityDays.includes(day)
+                      ? 'solid'
+                      : 'soft'
+                  "
+                  class="rounded-xl px-2.5 py-1.5 text-xs font-medium border border-stone-200/50 dark:border-stone-800/50"
+                  @click="toggleAvailabilityDay(day)"
+                >
+                  {{ day.slice(0, 3) }}
+                </UButton>
+              </div>
+            </div>
+
+            <div class="space-y-2 pt-2">
+              <label
+                class="text-sm font-bold text-stone-900 dark:text-stone-100"
+                >Daily Study Availability (Hours)</label
+              >
+              <div class="flex items-center gap-3">
+                <UInput
+                  v-model.number="onboardingForm.availabilityHours"
+                  type="number"
+                  min="1"
+                  max="24"
+                  class="w-32"
+                />
+                <span class="text-xs text-stone-500 whitespace-nowrap"
+                  >hours per day</span
+                >
               </div>
             </div>
           </div>
