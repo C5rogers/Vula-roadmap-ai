@@ -109,6 +109,24 @@ export const onboardingRouter = {
     });
   }),
 
+  getRoadmap: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .handler(async ({ input }) => {
+      return await prisma.roadmap.findUnique({
+        where: { id: input.id },
+        include: {
+          chapters: {
+            orderBy: { order: "asc" },
+            include: {
+              lessons: {
+                orderBy: { order: "asc" },
+              },
+            },
+          },
+        },
+      });
+    }),
+
   submit: protectedProcedure
     .input(onboardingInputSchema)
     .handler(async ({ input, context }) => {
