@@ -25,12 +25,52 @@ const roadmapsQuery = useQuery({
   ),
 });
 
+// Polling query for background generation progress
+const isGenerating = ref(false);
+const generationProgressPercent = ref(0);
+const generationMessage = ref("");
+
+const generationStatusQuery = useQuery({
+  ...$orpc.onboarding.getGenerationStatus.queryOptions(),
+  enabled: computed(() => !!session.value?.data?.user && isGenerating.value),
+  refetchInterval: computed(() => (isGenerating.value ? 1500 : false)),
+});
+
+// Watch polling results to update UI progress and handle completion
+watch(
+  () => generationStatusQuery.data.value,
+  (status) => {
+    if (!status) return;
+
+    if (status.status === "generating") {
+      generationProgressPercent.value = status.progress;
+      generationMessage.value = status.message;
+    } else if (status.status === "complete" && status.roadmapId) {
+      generationProgressPercent.value = 100;
+      generationMessage.value = "Complete! Launching curriculum...";
+      isGenerating.value = false;
+
+      // Invalidate queries to fetch updated profile and roadmaps lists
+      queryClient.invalidateQueries();
+
+      // Redirect to the newly generated roadmap details page
+      router.push(`/roadmaps/${status.roadmapId}`);
+    } else if (status.status === "error") {
+      isGenerating.value = false;
+      generationProgressPercent.value = 0;
+      generationMessage.value = "";
+      alert(status.message || "Failed to generate roadmap. Please try again.");
+    }
+  },
+);
+
 const onboardingMutation = useMutation(
   $orpc.onboarding.submit.mutationOptions({
-    onSuccess: (data) => {
-      queryClient.invalidateQueries();
-      isCreatingRoadmap.value = false;
-      router.push(`/roadmaps/${data.roadmap.id}`);
+    onSuccess: () => {
+      // Submit successful! Transition to polling state
+      isGenerating.value = true;
+      generationProgressPercent.value = 5;
+      generationMessage.value = "Saving your profile preferences...";
     },
   }),
 );
@@ -103,6 +143,25 @@ function startNewRoadmap() {
   };
 }
 
+// Calculate exact curriculum progress percentage dynamically!
+function getRoadmapProgress(roadmap: any): number {
+  if (!roadmap?.chapters) return 0;
+  let totalLessons = 0;
+  let completedLessons = 0;
+  for (const chapter of roadmap.chapters) {
+    if (chapter.lessons) {
+      for (const lesson of chapter.lessons) {
+        totalLessons++;
+        if (lesson.progress?.[0]?.isCompleted) {
+          completedLessons++;
+        }
+      }
+    }
+  }
+  if (totalLessons === 0) return 0;
+  return Math.round((completedLessons / totalLessons) * 100);
+}
+
 onUnmounted(() => {
   if (loadingInterval) clearInterval(loadingInterval);
 });
@@ -112,14 +171,21 @@ onUnmounted(() => {
   <div class="p-6 max-w-7xl mx-auto space-y-6">
     <!-- --- Loading State --- -->
     <div
-      v-if="profileQuery.status.value === 'pending' || roadmapsQuery.status.value === 'pending'"
+      v-if="
+        profileQuery.status.value === 'pending' ||
+        roadmapsQuery.status.value === 'pending'
+      "
       class="flex h-[60vh] flex-col items-center justify-center gap-4 animate-fade-in"
     >
       <UIcon
         name="i-lucide-loader-2"
         class="h-8 w-8 animate-spin text-amber-500"
       />
-      <div class="text-stone-500 dark:text-stone-400 text-xs font-semibold tracking-wider uppercase">Loading your roadmaps...</div>
+      <div
+        class="text-stone-500 dark:text-stone-400 text-xs font-semibold tracking-wider uppercase"
+      >
+        Loading your roadmaps...
+      </div>
     </div>
 
     <!-- --- Error State --- -->
@@ -148,7 +214,9 @@ onUnmounted(() => {
           <div
             class="animate-ping absolute inline-flex h-20 w-20 rounded-full bg-amber-500/20 opacity-75"
           ></div>
-          <div class="relative rounded-full p-6 bg-amber-500/10 border border-amber-500/20">
+          <div
+            class="relative rounded-full p-6 bg-amber-500/10 border border-amber-500/20"
+          >
             <UIcon
               name="i-lucide-sparkles"
               class="h-12 w-12 text-amber-500 animate-bounce"
@@ -156,7 +224,9 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="space-y-2">
-          <h2 class="text-2xl font-bold tracking-tight text-stone-950 dark:text-stone-50">
+          <h2
+            class="text-2xl font-bold tracking-tight text-stone-950 dark:text-stone-50"
+          >
             Generating Your Personalized Roadmap
           </h2>
           <p
@@ -178,7 +248,10 @@ onUnmounted(() => {
       </div>
 
       <!-- Onboarding Wizard Card (NO AI SLOP, clean handcrafted aesthetics) -->
-      <UCard v-else class="rounded-2xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900/50 backdrop-blur-sm shadow-sm">
+      <UCard
+        v-else
+        class="rounded-2xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900/50 backdrop-blur-sm shadow-sm"
+      >
         <template #header>
           <div class="flex items-center justify-between">
             <div>
@@ -212,10 +285,13 @@ onUnmounted(() => {
           <!-- Step 1: Goals -->
           <div v-if="formStep === 1" class="space-y-4">
             <div class="space-y-2">
-              <label class="text-sm font-bold text-stone-900 dark:text-stone-100"
+              <label
+                class="text-sm font-bold text-stone-900 dark:text-stone-100"
                 >What are your learning goals?</label
               >
-              <p class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed">
+              <p
+                class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed"
+              >
                 Tell us exactly what tools, stack, or skills you want to learn.
                 Be as specific or broad as you like.
               </p>
@@ -232,7 +308,8 @@ onUnmounted(() => {
           <!-- Step 2: Experience & Commitment -->
           <div v-if="formStep === 2" class="space-y-5">
             <div class="space-y-2">
-              <label class="text-sm font-bold text-stone-900 dark:text-stone-100"
+              <label
+                class="text-sm font-bold text-stone-900 dark:text-stone-100"
                 >What is your experience level in this area?</label
               >
               <div class="grid grid-cols-3 gap-3">
@@ -257,7 +334,8 @@ onUnmounted(() => {
 
             <div class="grid grid-cols-2 gap-4 pt-2">
               <div class="space-y-2">
-                <label class="text-sm font-bold text-stone-900 dark:text-stone-100"
+                <label
+                  class="text-sm font-bold text-stone-900 dark:text-stone-100"
                   >Weekly commitment (Hours)</label
                 >
                 <UInput
@@ -270,7 +348,8 @@ onUnmounted(() => {
               </div>
 
               <div class="space-y-2">
-                <label class="text-sm font-bold text-stone-900 dark:text-stone-100"
+                <label
+                  class="text-sm font-bold text-stone-900 dark:text-stone-100"
                   >Preferred duration</label
                 >
                 <USelect
@@ -291,10 +370,13 @@ onUnmounted(() => {
           <!-- Step 3: Style & Notes -->
           <div v-if="formStep === 3" class="space-y-5">
             <div class="space-y-2">
-              <label class="text-sm font-bold text-stone-900 dark:text-stone-100"
+              <label
+                class="text-sm font-bold text-stone-900 dark:text-stone-100"
                 >Preferred learning style</label
               >
-              <p class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed">
+              <p
+                class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed"
+              >
                 We will custom shape content, markdown files, resources and
                 prompts to best match your favorite way of learning.
               </p>
@@ -319,7 +401,8 @@ onUnmounted(() => {
             </div>
 
             <div class="space-y-2 pt-2">
-              <label class="text-sm font-bold text-stone-900 dark:text-stone-100"
+              <label
+                class="text-sm font-bold text-stone-900 dark:text-stone-100"
                 >Additional notes (Optional)</label
               >
               <UTextarea
@@ -391,8 +474,11 @@ onUnmounted(() => {
           >
             Your Curriculum Roadmaps
           </h1>
-          <p class="text-stone-500 dark:text-stone-400 text-xs mt-1 leading-relaxed">
-            Access your custom learning pathways. Describe your next goal to generate a new specialized curriculum.
+          <p
+            class="text-stone-500 dark:text-stone-400 text-xs mt-1 leading-relaxed"
+          >
+            Access your custom learning pathways. Describe your next goal to
+            generate a new specialized curriculum.
           </p>
         </div>
         <UButton
@@ -407,13 +493,23 @@ onUnmounted(() => {
       </div>
 
       <!-- Empty state if no roadmaps -->
-      <div v-if="!roadmapsQuery.data.value?.length" class="flex flex-col items-center justify-center text-center py-20 px-4 border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl bg-white/50 dark:bg-stone-900/10">
-        <div class="rounded-full p-4 bg-stone-100 dark:bg-stone-900 text-stone-400 dark:text-stone-500 mb-4">
+      <div
+        v-if="!roadmapsQuery.data.value?.length"
+        class="flex flex-col items-center justify-center text-center py-20 px-4 border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl bg-white/50 dark:bg-stone-900/10"
+      >
+        <div
+          class="rounded-full p-4 bg-stone-100 dark:bg-stone-900 text-stone-400 dark:text-stone-500 mb-4"
+        >
           <UIcon name="i-lucide-map" class="w-8 h-8" />
         </div>
-        <h3 class="text-base font-bold text-stone-900 dark:text-white">No Roadmaps Yet</h3>
-        <p class="text-xs text-stone-500 dark:text-stone-400 max-w-sm mt-1 leading-relaxed">
-          Unlock your next learning journey. Click "New Roadmap" above and let Roadie AI design a perfect, step-by-step syllabus for your targets.
+        <h3 class="text-base font-bold text-stone-900 dark:text-white">
+          No Roadmaps Yet
+        </h3>
+        <p
+          class="text-xs text-stone-500 dark:text-stone-400 max-w-sm mt-1 leading-relaxed"
+        >
+          Unlock your next learning journey. Click "New Roadmap" above and let
+          Roadie AI design a perfect, step-by-step syllabus for your targets.
         </p>
       </div>
 
@@ -424,9 +520,9 @@ onUnmounted(() => {
           :key="roadmap.id"
           :title="roadmap.title"
           :description="roadmap.description"
-          :progress="roadmap.enrollments?.[0]?.progressPercent || 0"
+          :progress="getRoadmapProgress(roadmap)"
           :href="`/roadmaps/${roadmap.id}`"
-          :createdAt="roadmap.createdAt"
+          :createdAt="new Date(roadmap.createdAt).toLocaleDateString()"
           :chapterCount="roadmap.chapters?.length || 0"
         />
       </div>
