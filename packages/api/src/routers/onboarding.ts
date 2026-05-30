@@ -235,7 +235,7 @@ export const onboardingRouter = {
         pdfCurrentPage: z.number().int().nullable().optional(),
         pdfTotalPages: z.number().int().nullable().optional(),
         scrollPercent: z.number().nullable().optional(),
-        timeSpent: z.number().int().default(0),
+        timeSpent: z.number().finite().int().min(0).default(0),
         isCompleted: z.boolean().default(false),
       }),
     )
