@@ -16,6 +16,7 @@ const fields: AuthFormField[] = [
     label: "Name",
     placeholder: "Enter your name",
     required: true,
+    autocomplete: "name",
   },
   {
     name: "email",
@@ -23,6 +24,7 @@ const fields: AuthFormField[] = [
     label: "Email",
     placeholder: "Enter your email",
     required: true,
+    autocomplete: "email",
   },
   {
     name: "password",
@@ -30,6 +32,7 @@ const fields: AuthFormField[] = [
     label: "Password",
     placeholder: "Enter your password",
     required: true,
+    autocomplete: "new-password",
   },
 ];
 
@@ -53,7 +56,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
       {
         onSuccess: () => {
           toast.add({ title: "Sign up successful" });
-          navigateTo("/dashboard", { replace: true });
+          navigateTo("/analytics", { replace: true });
         },
         onError: (error) => {
           toast.add({ title: "Sign up failed", description: error.error.message });

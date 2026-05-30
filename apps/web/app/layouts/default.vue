@@ -15,9 +15,9 @@ const isAuthPage = computed(() => route.path === "/login");
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div class="md:col-span-2">
-            <NuxtLink to="/" class="flex items-center gap-2 text-xl font-extrabold tracking-tight text-amber-600 dark:text-amber-500">
-              <span class="text-2xl">✨</span>
-              <span>RD</span>
+            <NuxtLink to="/" class="flex items-center gap-2 text-xl font-extrabold tracking-tight text-stone-900 dark:text-white">
+              <span class="bg-gradient-to-r from-amber-600 to-amber-500 dark:from-amber-400 dark:to-amber-300 bg-clip-text text-transparent font-black">RD</span>
+              <span>AI</span>
             </NuxtLink>
             <p class="mt-4 text-sm text-stone-500 dark:text-stone-400 max-w-sm">
               Unlock your next skill with hyper-personalized AI-generated curriculums, interactive lessons, and an adaptive AI mentor. Open source, human, and conversational.

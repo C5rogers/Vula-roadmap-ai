@@ -19,10 +19,12 @@
     "@roadmap_ai/env": "workspace:*",
     "@tanstack/vue-query": "^5.92.9",
     "ai": "catalog:",
+    "apexcharts": "^5.13.0",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "marked": "^18.0.4",
     "nuxt": "^4.4.4",
+    "vue3-apexcharts": "^1.11.1",
     "zod": "catalog:"
   },
   "devDependencies": {

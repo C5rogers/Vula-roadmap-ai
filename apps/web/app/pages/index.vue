@@ -2,6 +2,13 @@
 const { $authClient } = useNuxtApp();
 const session = $authClient.useSession();
 
+// Immediately redirect authenticated users to the /analytics view (Landing Page Redirection)
+watchEffect(() => {
+  if (!session.value?.isPending && session.value?.data) {
+    navigateTo("/analytics", { replace: true });
+  }
+});
+
 const { $orpc } = useNuxtApp();
 import { useQuery } from "@tanstack/vue-query";
 
