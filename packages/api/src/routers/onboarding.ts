@@ -242,6 +242,21 @@ export const onboardingRouter = {
     .handler(async ({ input, context }) => {
       const userId = context.session.user.id;
 
+      const lessonAccess = await prisma.lesson.findFirst({
+        where: {
+          id: input.lessonId,
+          chapter: {
+            roadmap: {
+              OR: [{ userId }, { enrollments: { some: { userId } } }],
+            },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!lessonAccess) {
+        throw new Error("Lesson not found or you do not have access to it.");
+      }
       const existing = await prisma.lessonProgress.findUnique({
         where: {
           userId_lessonId: {
