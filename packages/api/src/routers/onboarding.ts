@@ -154,18 +154,18 @@ Return the result structured according to the schema.`;
       let aiRoadmap;
       try {
         const result = await generateObject({
-          model: google("gemini-1.5-pro"),
+          model: google("gemini-2.5-flash"),
           schema: roadmapObjectSchema,
           prompt,
         });
         aiRoadmap = result.object;
       } catch (error) {
         console.warn(
-          "Failed to generate with gemini-1.5-pro, falling back to gemini-2.5-flash:",
+          "Failed to generate with gemini-2.5-flash, falling back to gemini-1.5-flash:",
           error,
         );
         const result = await generateObject({
-          model: google("gemini-2.5-flash"),
+          model: google("gemini-1.5-flash"),
           schema: roadmapObjectSchema,
           prompt,
         });
