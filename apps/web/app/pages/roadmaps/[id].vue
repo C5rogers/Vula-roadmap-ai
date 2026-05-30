@@ -4,7 +4,7 @@ import { Chat } from "@ai-sdk/vue";
 import { getTextFromMessage } from "@nuxt/ui/utils/ai";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
-import { ref, computed, watch } from "vue";
+import { ref, shallowRef, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { marked } from "marked";
 
@@ -67,14 +67,83 @@ const youtubeEmbedUrl = computed(() => {
   if (!activeLesson.value?.content || activeLesson.value.type !== "VIDEO")
     return null;
   const url = activeLesson.value.content.trim();
+
+  // Try to parse a valid 11-char YouTube ID first
   const regExp =
     /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
-  if (match && match[2].length === 11) {
+  if (
+    match &&
+    match[2] &&
+    match[2].length === 11 &&
+    !url.includes("example.com")
+  ) {
     return `https://www.youtube.com/embed/${match[2]}`;
   }
-  return null;
+
+  // Search Fallback: If it's a placeholder or invalid link, embed a search-based player!
+  return `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(activeLesson.value.title + " tutorial")}`;
 });
+
+// Video External Watch URL
+const videoWatchUrl = computed(() => {
+  if (!activeLesson.value?.content) return "#";
+  const url = activeLesson.value.content.trim();
+  if (url.startsWith("http") && !url.includes("example.com")) {
+    return url;
+  }
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(activeLesson.value.title + " tutorial")}`;
+});
+
+// Audio HTML5 stream helper (lo-fi ambient backdrop stream fallback)
+const audioStreamUrl = computed(() => {
+  if (!activeLesson.value?.content || activeLesson.value.type !== "AUDIO")
+    return null;
+  const url = activeLesson.value.content.trim();
+  if (
+    url.startsWith("http") &&
+    url.endsWith(".mp3") &&
+    !url.includes("example.com")
+  ) {
+    return url;
+  }
+  // Highly reliable lofi ambient background track fallback
+  return "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+});
+
+// Audio External Podcast Link
+const audioWatchUrl = computed(() => {
+  if (!activeLesson.value?.content) return "#";
+  const url = activeLesson.value.content.trim();
+  if (url.startsWith("http") && !url.includes("example.com")) {
+    return url;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(activeLesson.value.title + " podcast audio")}`;
+});
+
+// PDF Presentation Document URL
+const pdfDocumentUrl = computed(() => {
+  if (!activeLesson.value?.content) return "#";
+  const url = activeLesson.value.content.trim();
+  if (
+    url.startsWith("http") &&
+    url.endsWith(".pdf") &&
+    !url.includes("example.com")
+  ) {
+    return url;
+  }
+  return `https://www.google.com/search?q=filetype:pdf+${encodeURIComponent(activeLesson.value.title)}`;
+});
+
+// Curated Resource fallback resolver
+function resolveResourceUrl(r: any): string {
+  if (!r?.url) return "#";
+  const url = r.url.trim();
+  if (url.startsWith("http") && !url.includes("example.com")) {
+    return url;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(r.title)}`;
+}
 
 // --- 3. Interactive Lesson Features States ---
 // Flashcards state
@@ -113,19 +182,75 @@ function handleSubmitQuestion(questionId: string) {
 // --- 4. Contextual AI Chat ---
 const chatInput = ref("");
 const chatMessages = ref<UIMessage[]>([]);
-const aiApiUrl = `${useRuntimeConfig().public.serverUrl}/ai`;
+const aiApiUrl = computed(() => {
+  const uId = session.value?.data?.user?.id || "";
+  return `${useRuntimeConfig().public.serverUrl}/ai?roadmapId=${roadmapId}&userId=${uId}`;
+});
 
-let chatInstance = ref<Chat<any> | null>(null);
+const chatInstance = shallowRef<Chat<any> | null>(null);
 
-// Watch active lesson or active roadmap change to reinitialize chat with context
+// Query for saved chat history
+const chatHistoryQuery = useQuery({
+  ...$orpc.onboarding.getChatHistory.queryOptions({ input: { roadmapId } }),
+  enabled: computed(() => !!session.value?.data?.user && !!roadmapId),
+});
+
+// Autocomplete lesson dropdown logic
+const showLessonDropdown = ref(false);
+
+const filteredLessonsForDropdown = computed(() => {
+  const roadmap = roadmapQuery.data.value;
+  if (!roadmap?.chapters) return [];
+  const list: any[] = [];
+  for (const chapter of roadmap.chapters) {
+    for (const lesson of chapter.lessons) {
+      list.push(lesson);
+    }
+  }
+  return list;
+});
+
+function insertLessonMention(lesson: any) {
+  const currentText = chatInput.value;
+  const lastChar = currentText.slice(-1);
+  if (lastChar === "@" || lastChar === "#") {
+    chatInput.value = currentText.slice(0, -1) + `@${lesson.title} `;
+  } else {
+    chatInput.value = currentText + `@${lesson.title} `;
+  }
+  showLessonDropdown.value = false;
+}
+
+// Watch chatInput to trigger the dropdown
+watch(chatInput, (val) => {
+  if (val.endsWith("@") || val.endsWith("#")) {
+    showLessonDropdown.value = true;
+  } else if (!val.includes("@") && !val.includes("#")) {
+    showLessonDropdown.value = false;
+  }
+});
+
+// Watch active lesson, active roadmap, or loaded chat history to reinitialize chat with context
 watch(
-  [() => roadmapQuery.data.value?.id, () => activeLesson.value?.id],
-  ([id, lessonId]) => {
+  [
+    () => roadmapQuery.data.value?.id,
+    () => activeLesson.value?.id,
+    () => chatHistoryQuery.data.value,
+  ],
+  ([id, lessonId, dbMsgs]) => {
     const roadmap = roadmapQuery.data.value;
     if (!roadmap) {
       chatInstance.value = null;
       return;
     }
+
+    // Format saved messages from db if any
+    const formattedSaved = (dbMsgs || []).map((m: any) => ({
+      id: m.id,
+      role: m.role.toLowerCase() as any,
+      parts: [{ type: "text", text: m.content }],
+      createdAt: new Date(m.createdAt),
+    }));
 
     // Prepare system instructions context
     const contextPrompt = `You are a world-class AI Learning Coach assisting the user on their learning journey.
@@ -144,25 +269,29 @@ Please help the user understand the active lesson, explain difficult concepts in
         parts: [{ type: "text", text: contextPrompt }],
         createdAt: new Date(),
       },
-      {
-        id: "welcome-init",
-        role: "assistant" as any,
-        parts: [
-          {
-            type: "text",
-            text:
-              roadmap.learningStrategy ||
-              `Welcome to your learning journey for "${roadmap.title}"! How can I help you tackle this lesson today?`,
-          },
-        ],
-        createdAt: new Date(),
-      },
+      ...(formattedSaved.length > 0
+        ? formattedSaved
+        : [
+            {
+              id: "welcome-init",
+              role: "assistant" as any,
+              parts: [
+                {
+                  type: "text",
+                  text:
+                    roadmap.learningStrategy ||
+                    `Welcome to your learning journey for "${roadmap.title}"! How can I help you tackle this lesson today?`,
+                },
+              ],
+              createdAt: new Date(),
+            },
+          ]),
     ] as any;
 
     chatInstance.value = new Chat({
       messages: chatMessages.value as any,
       transport: new DefaultChatTransport({
-        api: aiApiUrl,
+        api: aiApiUrl.value,
       }),
       onError(err) {
         console.error("Coach error:", err);
@@ -179,11 +308,49 @@ function handleChatSubmit(e: Event) {
   const userInput = chatInput.value;
   chatInput.value = "";
 
-  chatInstance.value.sendMessage({ text: userInput });
+  // Check if there is a referenced lesson name in the input
+  let referencedLesson = null;
+  const roadmap = roadmapQuery.data.value;
+  if (roadmap?.chapters) {
+    for (const chapter of roadmap.chapters) {
+      for (const lesson of chapter.lessons) {
+        if (
+          userInput.toLowerCase().includes(lesson.title.toLowerCase()) ||
+          userInput.toLowerCase().includes(`@${lesson.title.toLowerCase()}`) ||
+          userInput.toLowerCase().includes(`#${lesson.title.toLowerCase()}`)
+        ) {
+          referencedLesson = lesson;
+          break;
+        }
+      }
+      if (referencedLesson) break;
+    }
+  }
+
+  if (referencedLesson) {
+    const additionalContext = `\n[User referenced a specific lesson: "${referencedLesson.title}". Here is the lesson context to answer their question:
+Lesson Overview: ${referencedLesson.overview || ""}
+Lesson Content Reference: ${referencedLesson.content || ""}]`;
+    chatInstance.value.sendMessage({
+      text: `${userInput}${additionalContext}`,
+    });
+  } else {
+    chatInstance.value.sendMessage({ text: userInput });
+  }
+}
+
+function cleanMessageContent(content: string): string {
+  if (!content) return "";
+  const index = content.indexOf("\n[User referenced a specific lesson:");
+  if (index !== -1) {
+    return content.substring(0, index);
+  }
+  return content;
 }
 
 const filteredMessages = computed(() => {
-  return chatMessages.value.filter((m: any) => m.role !== "system");
+  if (!chatInstance.value || !chatInstance.value.messages) return [];
+  return chatInstance.value.messages.filter((m: any) => m.role !== "system");
 });
 
 const hasChatMessages = computed(() => filteredMessages.value.length > 0);
@@ -592,7 +759,7 @@ function getYouTubeEmbedUrl(url: string): string {
                       </div>
                     </div>
                     <UButton
-                      :href="activeLesson.content"
+                      :href="videoWatchUrl"
                       target="_blank"
                       color="primary"
                       icon="i-lucide-external-link"
@@ -633,13 +800,13 @@ function getYouTubeEmbedUrl(url: string): string {
 
                   <!-- HTML5 Audio Player -->
                   <audio
-                    :src="activeLesson.content"
+                    :src="audioStreamUrl"
                     controls
                     class="w-full max-w-md border border-default rounded-xl p-1 bg-default/50 shadow-inner"
                   ></audio>
 
                   <UButton
-                    :href="activeLesson.content"
+                    :href="audioWatchUrl"
                     target="_blank"
                     variant="subtle"
                     color="neutral"
@@ -676,7 +843,7 @@ function getYouTubeEmbedUrl(url: string): string {
                     </div>
                   </div>
                   <UButton
-                    :href="activeLesson.content"
+                    :href="pdfDocumentUrl"
                     target="_blank"
                     color="primary"
                     icon="i-lucide-external-link"
@@ -862,7 +1029,7 @@ function getYouTubeEmbedUrl(url: string): string {
                     <!-- General Resource Links -->
                     <a
                       v-else
-                      :href="r.url"
+                      :href="resolveResourceUrl(r)"
                       target="_blank"
                       class="p-4 rounded-xl border border-default bg-elevated/20 hover:border-primary/50 hover:shadow-md transition-all duration-300 block space-y-1.5 group"
                     >
@@ -1107,7 +1274,9 @@ function getYouTubeEmbedUrl(url: string): string {
               >
                 <div
                   class="prose dark:prose-invert text-xs max-w-none text-inherit"
-                  v-html="parseMarkdown(getTextFromMessage(msg))"
+                  v-html="
+                    parseMarkdown(cleanMessageContent(getTextFromMessage(msg)))
+                  "
                 />
               </div>
             </div>
@@ -1116,6 +1285,38 @@ function getYouTubeEmbedUrl(url: string): string {
 
         <!-- Chat message input prompt -->
         <div class="p-4 border-t border-default bg-elevated/50 sticky bottom-0">
+          <!-- Floating autocomplete lesson list -->
+          <div
+            v-if="showLessonDropdown"
+            class="absolute bottom-16 left-4 right-4 bg-white dark:bg-stone-900 border border-default rounded-xl shadow-lg p-2 max-h-48 overflow-y-auto z-50 space-y-1 animate-fade-in"
+          >
+            <div
+              class="text-[10px] text-muted font-bold px-2 pb-1.5 border-b border-default uppercase tracking-wider"
+            >
+              Select a Lesson to Reference
+            </div>
+            <button
+              v-for="lesson in filteredLessonsForDropdown"
+              :key="lesson.id"
+              @click="insertLessonMention(lesson)"
+              class="w-full text-left px-2 py-1.5 text-xs hover:bg-primary/10 hover:text-primary rounded-lg cursor-pointer transition-colors flex items-center gap-2"
+            >
+              <UIcon
+                :name="
+                  lesson.type === 'VIDEO'
+                    ? 'i-lucide-video'
+                    : lesson.type === 'AUDIO'
+                      ? 'i-lucide-headphones'
+                      : lesson.type === 'PDF'
+                        ? 'i-lucide-file'
+                        : 'i-lucide-file-text'
+                "
+                class="w-3.5 h-3.5"
+              />
+              <span class="truncate">{{ lesson.title }}</span>
+            </button>
+          </div>
+
           <form
             @submit.prevent="handleChatSubmit"
             class="flex gap-2 items-center"
@@ -1250,7 +1451,11 @@ function getYouTubeEmbedUrl(url: string): string {
                   >
                     <div
                       class="prose dark:prose-invert text-xs max-w-none text-inherit"
-                      v-html="parseMarkdown(getTextFromMessage(msg))"
+                      v-html="
+                        parseMarkdown(
+                          cleanMessageContent(getTextFromMessage(msg)),
+                        )
+                      "
                     />
                   </div>
                 </div>
@@ -1261,6 +1466,38 @@ function getYouTubeEmbedUrl(url: string): string {
             <div
               class="p-4 border-t border-default bg-elevated/50 sticky bottom-0"
             >
+              <!-- Floating autocomplete lesson list -->
+              <div
+                v-if="showLessonDropdown"
+                class="absolute bottom-16 left-4 right-4 bg-white dark:bg-stone-900 border border-default rounded-xl shadow-lg p-2 max-h-48 overflow-y-auto z-50 space-y-1 animate-fade-in"
+              >
+                <div
+                  class="text-[10px] text-muted font-bold px-2 pb-1.5 border-b border-default uppercase tracking-wider"
+                >
+                  Select a Lesson to Reference
+                </div>
+                <button
+                  v-for="lesson in filteredLessonsForDropdown"
+                  :key="lesson.id"
+                  @click="insertLessonMention(lesson)"
+                  class="w-full text-left px-2 py-1.5 text-xs hover:bg-primary/10 hover:text-primary rounded-lg cursor-pointer transition-colors flex items-center gap-2"
+                >
+                  <UIcon
+                    :name="
+                      lesson.type === 'VIDEO'
+                        ? 'i-lucide-video'
+                        : lesson.type === 'AUDIO'
+                          ? 'i-lucide-headphones'
+                          : lesson.type === 'PDF'
+                            ? 'i-lucide-file'
+                            : 'i-lucide-file-text'
+                    "
+                    class="w-3.5 h-3.5"
+                  />
+                  <span class="truncate">{{ lesson.title }}</span>
+                </button>
+              </div>
+
               <form
                 @submit.prevent="handleChatSubmit"
                 class="flex gap-2 items-center"

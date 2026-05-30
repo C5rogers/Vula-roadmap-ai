@@ -1,19 +1,31 @@
 <script setup lang="ts">
+import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
+
 definePageMeta({
   middleware: ["auth"],
 });
 
-// Instant Welcome Redirect to /analytics
-onMounted(() => {
-  navigateTo("/analytics", { replace: true });
-});
+const { $authClient, $orpc } = useNuxtApp();
 const session = $authClient.useSession();
+const router = useRouter();
+const queryClient = useQueryClient();
 
 // --- 1. Queries and Mutations ---
 const profileQuery = useQuery({
   ...$orpc.onboarding.getProfile.queryOptions(),
   enabled: computed(() => !!session.value?.data?.user),
 });
+
+// Redirect to analytics only if they already have a profile and are not creating a roadmap
+watch(
+  () => profileQuery.data.value,
+  (profile) => {
+    if (profile && !isCreatingRoadmap.value && !isGenerating.value) {
+      navigateTo("/analytics", { replace: true });
+    }
+  },
+  { immediate: true },
+);
 
 const roadmapsQuery = useQuery({
   ...$orpc.onboarding.getRoadmaps.queryOptions(),
@@ -117,7 +129,11 @@ function startNewRoadmap() {
 </script>
 
 <template>
-  <div class="flex h-[80vh] items-center justify-center">
+  <!-- Loading Redirect State -->
+  <div
+    v-if="profileQuery.status.value === 'pending' && !profileQuery.data.value"
+    class="flex h-[80vh] items-center justify-center"
+  >
     <div class="flex flex-col items-center gap-3">
       <UIcon
         name="i-lucide-loader-2"
@@ -129,7 +145,9 @@ function startNewRoadmap() {
       >
     </div>
   </div>
+
   <UContainer
+    v-else
     class="py-6 max-w-7xl min-h-[calc(100vh-var(--ui-header-height)-3rem)]"
   >
     <!-- --- Case 1: AI Roadmap Generation State --- -->

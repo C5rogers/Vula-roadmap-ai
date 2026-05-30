@@ -374,15 +374,29 @@ export const onboardingRouter = {
       };
     }),
 
+  getChatHistory: protectedProcedure
+    .input(z.object({ roadmapId: z.string() }))
+    .handler(async ({ input, context }) => {
+      const userId = context.session.user.id;
+      const chatSession = await prisma.chatSession.findFirst({
+        where: { userId, roadmapId: input.roadmapId },
+        include: {
+          messages: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+      return chatSession?.messages || [];
+    }),
+
   getGenerationStatus: protectedProcedure.handler(async ({ context }) => {
     const userId = context.session.user.id;
-    return (
-      generationProgress.get(userId) || {
-        status: "idle",
-        progress: 0,
-        message: "No roadmap currently generating.",
-      }
-    );
+    const fallback: GenerationState = {
+      status: "idle",
+      progress: 0,
+      message: "No roadmap currently generating.",
+    };
+    return generationProgress.get(userId) || fallback;
   }),
 
   submit: protectedProcedure
