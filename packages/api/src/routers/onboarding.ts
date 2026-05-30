@@ -92,6 +92,11 @@ const roadmapObjectSchema = z.object({
           title: z
             .string()
             .describe("The lesson title, e.g. 'Understanding useState'"),
+          type: z
+            .enum(["TEXT", "VIDEO", "AUDIO", "PDF"])
+            .describe(
+              "The media type of this lesson. Distribute types among TEXT, VIDEO, AUDIO, and PDF lessons to make a rich, multi-sensory curriculum. Generate TEXT for written articles, VIDEO for video lectures/walkthroughs, AUDIO for podcast/lecture transcripts, and PDF for slides/printable guides.",
+            ),
           overview: z
             .string()
             .describe("A clear outline of what this lesson covers"),
@@ -219,6 +224,142 @@ export const onboardingRouter = {
           },
         },
       });
+    }),
+
+  saveProgress: protectedProcedure
+    .input(
+      z.object({
+        lessonId: z.string(),
+        videoProgress: z.number().nullable().optional(),
+        audioProgress: z.number().nullable().optional(),
+        pdfCurrentPage: z.number().int().nullable().optional(),
+        pdfTotalPages: z.number().int().nullable().optional(),
+        scrollPercent: z.number().nullable().optional(),
+        timeSpent: z.number().int().default(0),
+        isCompleted: z.boolean().default(false),
+      }),
+    )
+    .handler(async ({ input, context }) => {
+      const userId = context.session.user.id;
+
+      const existing = await prisma.lessonProgress.findUnique({
+        where: {
+          userId_lessonId: {
+            userId,
+            lessonId: input.lessonId,
+          },
+        },
+      });
+
+      const isNowCompleted =
+        input.isCompleted || (existing?.isCompleted ?? false);
+      const completedAtValue = isNowCompleted
+        ? (existing?.completedAt ?? new Date())
+        : null;
+
+      const progress = await prisma.lessonProgress.upsert({
+        where: {
+          userId_lessonId: {
+            userId,
+            lessonId: input.lessonId,
+          },
+        },
+        update: {
+          isCompleted: isNowCompleted,
+          completedAt: completedAtValue,
+          videoProgress: input.videoProgress ?? undefined,
+          audioProgress: input.audioProgress ?? undefined,
+          pdfCurrentPage: input.pdfCurrentPage ?? undefined,
+          pdfTotalPages: input.pdfTotalPages ?? undefined,
+          scrollPercent: input.scrollPercent ?? undefined,
+          timeSpent: {
+            increment: input.timeSpent,
+          },
+        },
+        create: {
+          userId,
+          lessonId: input.lessonId,
+          isCompleted: input.isCompleted,
+          completedAt: input.isCompleted ? new Date() : null,
+          videoProgress: input.videoProgress,
+          audioProgress: input.audioProgress,
+          pdfCurrentPage: input.pdfCurrentPage,
+          pdfTotalPages: input.pdfTotalPages,
+          scrollPercent: input.scrollPercent,
+          timeSpent: input.timeSpent,
+        },
+      });
+
+      return { success: true, progress };
+    }),
+
+  getProgressAnalysis: protectedProcedure
+    .input(z.object({ roadmapId: z.string() }))
+    .handler(async ({ input, context }) => {
+      const userId = context.session.user.id;
+
+      // Fetch all lessons within the chapters of this roadmap
+      const lessons = await prisma.lesson.findMany({
+        where: {
+          chapter: {
+            roadmapId: input.roadmapId,
+          },
+        },
+        include: {
+          progress: {
+            where: { userId },
+          },
+        },
+      });
+
+      const totalLessons = lessons.length;
+      let completedLessons = 0;
+      let totalTimeSpent = 0;
+      let lastStudiedAt: Date | null = null;
+
+      // Group study time by lesson type
+      const timeSpentByType: Record<string, number> = {
+        TEXT: 0,
+        VIDEO: 0,
+        AUDIO: 0,
+        PDF: 0,
+      };
+
+      for (const lesson of lessons) {
+        const userProgress = lesson.progress?.[0];
+        if (userProgress) {
+          if (userProgress.isCompleted) {
+            completedLessons++;
+          }
+          totalTimeSpent += userProgress.timeSpent;
+
+          if (!lastStudiedAt || userProgress.lastStudiedAt > lastStudiedAt) {
+            lastStudiedAt = userProgress.lastStudiedAt;
+          }
+
+          // Accumulate study time by type
+          const lessonType = lesson.type || "TEXT";
+          timeSpentByType[lessonType] =
+            (timeSpentByType[lessonType] || 0) + userProgress.timeSpent;
+        }
+      }
+
+      const completionRate =
+        totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0;
+
+      return {
+        success: true,
+        roadmapId: input.roadmapId,
+        analysis: {
+          totalLessons,
+          completedLessons,
+          completionRate: Math.round(completionRate * 100) / 100, // round to 2 decimal places
+          totalTimeSpentSeconds: totalTimeSpent,
+          totalTimeSpentMinutes: Math.round((totalTimeSpent / 60) * 100) / 100,
+          lastStudiedAt,
+          timeSpentByType,
+        },
+      };
     }),
 
   submit: protectedProcedure
@@ -351,6 +492,7 @@ Return the result structured according to the schema.`;
               lessons: {
                 create: chapter.lessons.map((lesson) => ({
                   title: lesson.title,
+                  type: lesson.type, // Save the generated type!
                   overview: lesson.overview,
                   content: lesson.content,
                   order: lesson.order,
