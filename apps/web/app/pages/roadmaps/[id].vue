@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useQuery } from "@tanstack/vue-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import { Chat } from "@ai-sdk/vue";
 import { getTextFromMessage } from "@nuxt/ui/utils/ai";
 import type { UIMessage } from "ai";
@@ -25,6 +25,22 @@ const roadmapQuery = useQuery({
   ...$orpc.onboarding.getRoadmap.queryOptions({ input: { id: roadmapId } }),
   enabled: computed(() => !!session.value?.data?.user && !!roadmapId),
 });
+
+const queryClient = useQueryClient();
+
+// Save Progress Mutation
+const saveProgressMutation = useMutation(
+  $orpc.onboarding.saveProgress.mutationOptions({
+    onSuccess: () => {
+      // Invalidate the roadmap query to re-fetch the fresh lesson progress details (like completion checks!)
+      queryClient.invalidateQueries({
+        queryKey: $orpc.onboarding.getRoadmap.queryKey({
+          input: { id: roadmapId },
+        }),
+      });
+    },
+  }),
+);
 
 // --- 2. Active Lesson State & Tabs ---
 const activeLesson = ref<any>(null);
@@ -53,14 +69,159 @@ watch(
   { immediate: true },
 );
 
-// Reset tab-specific states when switching lessons
-watch(activeLesson, () => {
+// --- Progress Tracking States ---
+const lastSavedScrollPercent = ref(0);
+const lastSavedAudioProgress = ref(0);
+const currentVideoProgress = ref(0);
+const currentPdfPage = ref(1);
+const totalPdfPages = ref(8);
+
+// Reset tab-specific states when switching lessons and restore database progress
+watch(activeLesson, (newLesson) => {
   activeTab.value = "notes";
   currentCardIdx.value = 0;
   isCardFlipped.value = false;
   selectedAnswers.value = {};
   submittedQuizzes.value = {};
+
+  if (newLesson) {
+    const dbProgress = newLesson.progress?.[0] || {};
+    lastSavedScrollPercent.value = dbProgress.scrollPercent || 0;
+    lastSavedAudioProgress.value = dbProgress.audioProgress || 0;
+    currentVideoProgress.value = dbProgress.videoProgress || 0;
+    currentPdfPage.value = dbProgress.pdfCurrentPage || 1;
+    totalPdfPages.value = dbProgress.pdfTotalPages || 8;
+  } else {
+    lastSavedScrollPercent.value = 0;
+    lastSavedAudioProgress.value = 0;
+    currentVideoProgress.value = 0;
+    currentPdfPage.value = 1;
+    totalPdfPages.value = 8;
+  }
 });
+
+// 1. Text Scroll progress handler
+const textContentContainer = ref<HTMLElement | null>(null);
+
+function handleTextScroll(e: Event) {
+  const el = e.target as HTMLElement;
+  if (!el || !activeLesson.value) return;
+  const scrollTop = el.scrollTop;
+  const scrollHeight = el.scrollHeight;
+  const clientHeight = el.clientHeight;
+
+  if (scrollHeight - clientHeight <= 0) return;
+
+  const scrollPercent = Math.min(
+    Math.round((scrollTop / (scrollHeight - clientHeight)) * 100),
+    100,
+  );
+
+  // Throttle updates: save when scroll progress increases by at least 15%, or hits 100%
+  if (
+    scrollPercent > lastSavedScrollPercent.value + 15 ||
+    (scrollPercent === 100 && lastSavedScrollPercent.value < 100)
+  ) {
+    lastSavedScrollPercent.value = scrollPercent;
+
+    saveProgressMutation.mutate({
+      lessonId: activeLesson.value.id,
+      scrollPercent,
+      isCompleted: scrollPercent >= 95, // Completed when scrolled to bottom
+      timeSpent: 5, // report 5 seconds spent
+    });
+  }
+}
+
+// 2. Audio progress handlers
+function handleAudioTimeUpdate(e: Event) {
+  const el = e.target as HTMLAudioElement;
+  if (!el || !activeLesson.value || !el.duration) return;
+
+  const progressPercent = Math.min(
+    Math.round((el.currentTime / el.duration) * 100),
+    100,
+  );
+
+  // Throttle updates: save when audio play progress increases by 15%
+  if (progressPercent > lastSavedAudioProgress.value + 15) {
+    lastSavedAudioProgress.value = progressPercent;
+
+    saveProgressMutation.mutate({
+      lessonId: activeLesson.value.id,
+      audioProgress: el.currentTime,
+      isCompleted: progressPercent >= 95,
+      timeSpent: 5,
+    });
+  }
+}
+
+// Audio lesson completed
+function handleAudioEnded() {
+  if (!activeLesson.value) return;
+  lastSavedAudioProgress.value = 100;
+
+  saveProgressMutation.mutate({
+    lessonId: activeLesson.value.id,
+    audioProgress: 100,
+    isCompleted: true,
+    timeSpent: 5,
+  });
+}
+
+// 3. Video progress handlers
+function handleVideoProgressChange() {
+  if (!activeLesson.value) return;
+  saveProgressMutation.mutate({
+    lessonId: activeLesson.value.id,
+    videoProgress: currentVideoProgress.value,
+    isCompleted: currentVideoProgress.value >= 95,
+    timeSpent: 10,
+  });
+}
+
+function completeVideoLesson() {
+  if (!activeLesson.value) return;
+  currentVideoProgress.value = 100;
+  saveProgressMutation.mutate({
+    lessonId: activeLesson.value.id,
+    videoProgress: 100,
+    isCompleted: true,
+    timeSpent: 10,
+  });
+}
+
+// 4. PDF slide handlers
+function prevPdfPage() {
+  if (currentPdfPage.value > 1) {
+    currentPdfPage.value--;
+    savePdfProgress();
+  }
+}
+
+function nextPdfPage() {
+  if (currentPdfPage.value < totalPdfPages.value) {
+    currentPdfPage.value++;
+    savePdfProgress();
+  }
+}
+
+function completePdfLesson() {
+  currentPdfPage.value = totalPdfPages.value;
+  savePdfProgress();
+}
+
+function savePdfProgress() {
+  if (!activeLesson.value) return;
+  const isCompleted = currentPdfPage.value === totalPdfPages.value;
+  saveProgressMutation.mutate({
+    lessonId: activeLesson.value.id,
+    pdfCurrentPage: currentPdfPage.value,
+    pdfTotalPages: totalPdfPages.value,
+    isCompleted,
+    timeSpent: 8,
+  });
+}
 
 // YouTube Embed helper
 const youtubeEmbedUrl = computed(() => {
@@ -431,7 +592,7 @@ function getYouTubeEmbedUrl(url: string): string {
             color="neutral"
             variant="ghost"
             icon="i-lucide-arrow-left"
-            @click="router.push('/dashboard')"
+            @click="router.push('/roadmaps')"
             class="rounded-xl"
           >
             Dashboard
@@ -530,13 +691,34 @@ function getYouTubeEmbedUrl(url: string): string {
                         : 'text-stone-500 dark:text-stone-300'
                     "
                   >
-                    <span class="line-clamp-2"
-                      >{{ lesson.order }}. {{ lesson.title }}</span
-                    >
+                    <div class="flex items-center gap-2 min-w-0">
+                      <!-- Progress Checkmark or Media Icon -->
+                      <UIcon
+                        v-if="lesson.progress?.[0]?.isCompleted"
+                        name="i-lucide-check-circle-2"
+                        class="h-3.5 w-3.5 shrink-0 text-green-500"
+                      />
+                      <UIcon
+                        v-else
+                        :name="
+                          lesson.type === 'VIDEO'
+                            ? 'i-lucide-video'
+                            : lesson.type === 'AUDIO'
+                              ? 'i-lucide-headphones'
+                              : lesson.type === 'PDF'
+                                ? 'i-lucide-file'
+                                : 'i-lucide-file-text'
+                        "
+                        class="h-3.5 w-3.5 shrink-0 text-stone-400 dark:text-stone-500"
+                      />
+                      <span class="line-clamp-2"
+                        >{{ lesson.order }}. {{ lesson.title }}</span
+                      >
+                    </div>
                     <UIcon
                       v-if="activeLesson?.id === lesson.id"
-                      name="i-lucide-book-open"
-                      class="h-3.5 w-3.5 text-primary shrink-0"
+                      name="i-lucide-chevron-right"
+                      class="h-3 w-3 text-primary shrink-0"
                     />
                   </button>
                 </div>
@@ -603,7 +785,14 @@ function getYouTubeEmbedUrl(url: string): string {
                     "
                   >
                     <div class="flex items-center gap-2 min-w-0">
+                      <!-- Progress Checkmark or Media Icon -->
                       <UIcon
+                        v-if="lesson.progress?.[0]?.isCompleted"
+                        name="i-lucide-check-circle-2"
+                        class="h-3.5 w-3.5 shrink-0 text-green-500 animate-fade-in"
+                      />
+                      <UIcon
+                        v-else
                         :name="
                           lesson.type === 'VIDEO'
                             ? 'i-lucide-video'
@@ -701,14 +890,16 @@ function getYouTubeEmbedUrl(url: string): string {
                   >Study Content</span
                 >
 
-                <!-- Case A: Text Lesson -->
+                <!-- Case A: Text Lesson (Scroll-Tracking Scrollable Box) -->
                 <div
                   v-if="activeLesson.type === 'TEXT' || !activeLesson.type"
-                  class="prose dark:prose-invert text-xs leading-6 max-w-none text-stone-700 dark:text-stone-200 bg-default/40 p-4 rounded-xl border border-default/60"
+                  ref="textContentContainer"
+                  @scroll="handleTextScroll"
+                  class="prose dark:prose-invert text-xs leading-6 max-w-none text-stone-700 dark:text-stone-200 bg-default/40 p-4 rounded-xl border border-default/60 max-h-[60vh] overflow-y-auto scroll-smooth"
                   v-html="parseMarkdown(activeLesson.content)"
                 />
 
-                <!-- Case B: Video Lesson -->
+                <!-- Case B: Video Lesson (With Interactive Video Progress Slider) -->
                 <div
                   v-else-if="activeLesson.type === 'VIDEO'"
                   class="space-y-4"
@@ -733,7 +924,7 @@ function getYouTubeEmbedUrl(url: string): string {
                   </div>
 
                   <div
-                    class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm"
+                    class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm w-full"
                   >
                     <div class="rounded-full p-4 bg-primary/10 text-primary">
                       <UIcon
@@ -748,29 +939,64 @@ function getYouTubeEmbedUrl(url: string): string {
                       <p
                         class="text-xs text-muted max-w-md mx-auto leading-relaxed"
                       >
-                        This lesson includes a curated video lecture. You can
-                        watch it in the embedded player above or view it
-                        directly on the host platform.
+                        This lesson includes a curated video lecture. Watch the
+                        embedded player above, and adjust your watch progress
+                        below!
                       </p>
+
+                      <!-- Video Progress Tracker Slider -->
                       <div
-                        class="text-[11px] font-mono text-muted select-all max-w-md truncate bg-default/50 px-2.5 py-1 rounded-md border border-default/60 mx-auto mt-1"
+                        class="w-full max-w-sm mx-auto p-4 bg-default/60 rounded-xl border border-default/80 mt-2 space-y-2"
                       >
-                        {{ activeLesson.content }}
+                        <div
+                          class="flex items-center justify-between text-xs font-semibold"
+                        >
+                          <span class="text-muted">Watch Progress</span>
+                          <span class="text-primary"
+                            >{{ currentVideoProgress }}%</span
+                          >
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          v-model.number="currentVideoProgress"
+                          @change="handleVideoProgressChange"
+                          class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-primary"
+                        />
+                        <div
+                          class="flex justify-between text-[10px] text-muted"
+                        >
+                          <span>Started</span>
+                          <span>Completed</span>
+                        </div>
                       </div>
                     </div>
-                    <UButton
-                      :href="videoWatchUrl"
-                      target="_blank"
-                      color="primary"
-                      icon="i-lucide-external-link"
-                      class="rounded-xl px-5"
-                    >
-                      Watch Video on Host Platform
-                    </UButton>
+                    <div class="flex gap-2">
+                      <UButton
+                        :href="videoWatchUrl"
+                        target="_blank"
+                        color="neutral"
+                        variant="soft"
+                        icon="i-lucide-external-link"
+                        class="rounded-xl"
+                      >
+                        Watch Video
+                      </UButton>
+                      <UButton
+                        v-if="currentVideoProgress < 100"
+                        @click="completeVideoLesson"
+                        color="primary"
+                        icon="i-lucide-check-circle"
+                        class="rounded-xl"
+                      >
+                        Mark Completed
+                      </UButton>
+                    </div>
                   </div>
                 </div>
 
-                <!-- Case C: Audio Lesson -->
+                <!-- Case C: Audio Lesson (Playback Tracking) -->
                 <div
                   v-else-if="activeLesson.type === 'AUDIO'"
                   class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm"
@@ -788,8 +1014,8 @@ function getYouTubeEmbedUrl(url: string): string {
                     <p
                       class="text-xs text-muted max-w-md mx-auto leading-relaxed"
                     >
-                      Listen to the audio podcast-style narrative transcript
-                      discussing the core concepts of this lesson.
+                      Listen to the audio podcast-style narrative discussion.
+                      Your study progress tracks in real time as you play!
                     </p>
                     <div
                       class="text-[11px] font-mono text-muted select-all max-w-md truncate bg-default/50 px-2.5 py-1 rounded-md border border-default/60 mx-auto mt-1 mb-2"
@@ -798,11 +1024,13 @@ function getYouTubeEmbedUrl(url: string): string {
                     </div>
                   </div>
 
-                  <!-- HTML5 Audio Player -->
+                  <!-- HTML5 Audio Player with Playback Listeners -->
                   <audio
                     :src="audioStreamUrl"
                     controls
-                    class="w-full max-w-md border border-default rounded-xl p-1 bg-default/50 shadow-inner"
+                    @timeupdate="handleAudioTimeUpdate"
+                    @ended="handleAudioEnded"
+                    class="w-full max-w-md border border-default rounded-xl p-1 bg-default/50 shadow-inner mb-2"
                   ></audio>
 
                   <UButton
@@ -817,7 +1045,7 @@ function getYouTubeEmbedUrl(url: string): string {
                   </UButton>
                 </div>
 
-                <!-- Case D: PDF / Slides Lesson -->
+                <!-- Case D: PDF / Slides Lesson (Interactive Slide Navigator) -->
                 <div
                   v-else-if="activeLesson.type === 'PDF'"
                   class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm"
@@ -832,25 +1060,84 @@ function getYouTubeEmbedUrl(url: string): string {
                     <p
                       class="text-xs text-muted max-w-md mx-auto leading-relaxed"
                     >
-                      A downloadable, comprehensive presentation slide document
-                      is available for this lesson. Click below to view the
-                      slide deck.
+                      A downloadable presentation slide document is available.
+                      Use the navigator below to read through the slide pages!
                     </p>
+
+                    <!-- PDF Slide Simulator Navigator -->
                     <div
-                      class="text-[11px] font-mono text-muted select-all max-w-md truncate bg-default/50 px-2.5 py-1 rounded-md border border-default/60 mx-auto mt-1 mb-2"
+                      class="w-full max-w-sm mx-auto p-4 bg-default/60 rounded-xl border border-default/80 mt-2 space-y-3"
                     >
-                      {{ activeLesson.content }}
+                      <div
+                        class="bg-neutral-100 dark:bg-neutral-900 border border-default rounded-xl p-6 h-36 flex items-center justify-center text-center shadow-inner relative overflow-hidden"
+                      >
+                        <div class="text-xs font-semibold text-highlighted">
+                          Slide Page {{ currentPdfPage }} / {{ totalPdfPages }}
+                          <span
+                            class="block text-[10px] text-muted font-normal mt-1 leading-normal"
+                          >
+                            Topic: {{ activeLesson.title }} - Guide Core Concept
+                            Part {{ currentPdfPage }}
+                          </span>
+                        </div>
+                        <div
+                          class="absolute bottom-2 right-2 text-[9px] text-muted font-mono"
+                        >
+                          {{
+                            Math.round((currentPdfPage / totalPdfPages) * 100)
+                          }}% Read
+                        </div>
+                      </div>
+
+                      <div class="flex items-center justify-between gap-2 pt-1">
+                        <UButton
+                          color="neutral"
+                          variant="soft"
+                          size="xs"
+                          icon="i-lucide-chevron-left"
+                          :disabled="currentPdfPage <= 1"
+                          @click="prevPdfPage"
+                        >
+                          Prev Slide
+                        </UButton>
+                        <span class="text-xs text-muted font-medium"
+                          >Page {{ currentPdfPage }} of
+                          {{ totalPdfPages }}</span
+                        >
+                        <UButton
+                          color="neutral"
+                          variant="soft"
+                          size="xs"
+                          trailing-icon="i-lucide-chevron-right"
+                          :disabled="currentPdfPage >= totalPdfPages"
+                          @click="nextPdfPage"
+                        >
+                          Next Slide
+                        </UButton>
+                      </div>
                     </div>
                   </div>
-                  <UButton
-                    :href="pdfDocumentUrl"
-                    target="_blank"
-                    color="primary"
-                    icon="i-lucide-external-link"
-                    class="rounded-xl px-5"
-                  >
-                    Open PDF Document
-                  </UButton>
+                  <div class="flex gap-2">
+                    <UButton
+                      :href="pdfDocumentUrl"
+                      target="_blank"
+                      color="neutral"
+                      variant="soft"
+                      icon="i-lucide-external-link"
+                      class="rounded-xl"
+                    >
+                      Open PDF Document
+                    </UButton>
+                    <UButton
+                      v-if="currentPdfPage < totalPdfPages"
+                      @click="completePdfLesson"
+                      color="primary"
+                      icon="i-lucide-check-circle"
+                      class="rounded-xl"
+                    >
+                      Mark Read Completed
+                    </UButton>
+                  </div>
                 </div>
               </div>
 

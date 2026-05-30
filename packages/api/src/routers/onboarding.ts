@@ -189,6 +189,11 @@ export const onboardingRouter = {
           include: {
             lessons: {
               orderBy: { order: "asc" },
+              include: {
+                progress: {
+                  where: { userId },
+                },
+              },
             },
           },
         },
@@ -202,7 +207,8 @@ export const onboardingRouter = {
 
   getRoadmap: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .handler(async ({ input }) => {
+    .handler(async ({ input, context }) => {
+      const userId = context.session.user.id;
       return await prisma.roadmap.findUnique({
         where: { id: input.id },
         include: {
@@ -215,6 +221,9 @@ export const onboardingRouter = {
                   resources: true,
                   flashcards: true,
                   glossaries: true,
+                  progress: {
+                    where: { userId },
+                  },
                   quizzes: {
                     include: {
                       questions: true,
