@@ -1,0 +1,202 @@
+model UserProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningGoals     String? // what they want to learn
+  experienceLevel   String? // beginner, intermediate, advanced
+  learningStyle     String? // e.g. document, video, mixed
+  weeklyCommitment  Int? // in hours
+  preferredDuration String? // e.g. "4 weeks"
+  additionalNotes   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("user_profile")
+}
+
+model Roadmap {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  description      String
+  overview         String?  @db.Text
+  summary          String?  @db.Text
+  targetGoal       String // e.g., "React Development"
+  learningStrategy String? // e.g., "Practical hands-on projects"
+  isPublic         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  chapters     Chapter[]
+  enrollments  Enrollment[]
+  quizzes      Quiz[]
+  chatSessions ChatSession[]
+
+  @@map("roadmap")
+}
+
+model Enrollment {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roadmapId       String
+  roadmap         Roadmap   @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  status          String    @default("ENROLLED") // ENROLLED, IN_PROGRESS, COMPLETED, ARCHIVED
+  progressPercent Float     @default(0.0)
+  enrolledAt      DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@unique([userId, roadmapId])
+  @@map("enrollment")
+}
+
+model Chapter {
+  id          String  @id @default(uuid())
+  roadmapId   String
+  roadmap     Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  overview    String? @db.Text
+  summary     String? @db.Text
+  order       Int // Chapter order (1, 2, 3...)
+
+  lessons Lesson[]
+  quizzes Quiz[]
+
+  @@map("chapter")
+}
+
+model Lesson {
+  id        String  @id @default(uuid())
+  chapterId String
+  chapter   Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title     String
+  overview  String? @db.Text
+  content   String? @db.Text // Can be text, markdown document, or transcripts
+  order     Int // Lesson order (1, 2, 3...)
+
+  resources  Resource[]
+  flashcards Flashcard[]
+  quizzes    Quiz[]
+  glossaries Glossary[]
+  progress   LessonProgress[]
+
+  @@map("lesson")
+}
+
+model Resource {
+  id          String  @id @default(uuid())
+  lessonId    String
+  lesson      Lesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  title       String
+  url         String
+  type        String // DOCUMENT, VIDEO, ARTICLE, REPO, etc.
+  description String?
+
+  @@map("resource")
+}
+
+model Flashcard {
+  id       String @id @default(uuid())
+  lessonId String
+  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  front    String
+  back     String
+
+  @@map("flashcard")
+}
+
+model Glossary {
+  id         String @id @default(uuid())
+  lessonId   String
+  lesson     Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  term       String
+  definition String
+
+  @@map("glossary")
+}
+
+model Quiz {
+  id    String @id @default(uuid())
+  title String
+  type  String // INSTANT, CHAPTER, FINAL
+
+  roadmapId String?
+  roadmap   Roadmap? @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  chapterId String?
+  chapter   Chapter? @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  lessonId String?
+  lesson   Lesson? @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  questions Question[]
+  attempts  QuizAttempt[]
+
+  @@map("quiz")
+}
+
+model Question {
+  id            String  @id @default(uuid())
+  quizId        String
+  quiz          Quiz    @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionText  String
+  options       Json // Array of options, e.g. ["Option A", "Option B"]
+  correctAnswer String // Index or text matching the correct answer
+  explanation   String? @db.Text
+
+  @@map("question")
+}
+
+model QuizAttempt {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quizId      String
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  score       Float // E.g. score percentage or correct answers
+  answers     Json // Map of question ID to chosen answer
+  completedAt DateTime @default(now())
+
+  @@map("quiz_attempt")
+}
+
+model LessonProgress {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId    String
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+
+  @@unique([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roadmapId String
+  roadmap   Roadmap  @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  @@map("chat_session")
+}
+
+model ChatMessage {
+  id            String      @id @default(uuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  role          String // USER, ASSISTANT, SYSTEM
+  content       String      @db.Text
+  createdAt     DateTime    @default(now())
+
+  @@map("chat_message")
+}

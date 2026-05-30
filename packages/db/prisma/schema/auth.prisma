@@ -9,6 +9,14 @@ model User {
   sessions      Session[]
   accounts      Account[]
 
+  // Roadmap relations
+  profile        UserProfile?
+  roadmaps       Roadmap[]
+  enrollments    Enrollment[]
+  quizAttempts   QuizAttempt[]
+  lessonProgress LessonProgress[]
+  chatSessions   ChatSession[]
+
   @@unique([email])
   @@map("user")
 }
