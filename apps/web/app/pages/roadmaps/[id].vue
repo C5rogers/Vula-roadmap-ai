@@ -6,6 +6,7 @@ import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { marked } from "marked";
 
 const { $authClient, $orpc } = useNuxtApp();
 const route = useRoute();
@@ -168,6 +169,11 @@ const isChatLoading = computed(() => {
     chatInstance.value.status === "streaming"
   );
 });
+
+function parseMarkdown(md: string): string {
+  if (!md) return "";
+  return marked.parse(md) as string;
+}
 </script>
 
 <template>
@@ -355,10 +361,9 @@ const isChatLoading = computed(() => {
                   >Study Content</span
                 >
                 <div
-                  class="prose dark:prose-invert text-xs leading-6 whitespace-pre-wrap max-w-none text-neutral-700 bg-default/40 p-4 rounded-xl border border-default/60"
-                >
-                  {{ activeLesson.content }}
-                </div>
+                  class="prose dark:prose-invert text-xs leading-6 max-w-none text-neutral-700 bg-default/40 p-4 rounded-xl border border-default/60"
+                  v-html="parseMarkdown(activeLesson.content)"
+                />
               </div>
 
               <!-- Tab 2: Flashcards (Flip cards) -->
@@ -439,6 +444,7 @@ const isChatLoading = computed(() => {
 
               <!-- Tab 3: Glossary (Definitions list) -->
               <div
+                v-for="g in activeLesson.glossaries"
                 v-else-if="activeTab === 'glossary'"
                 class="space-y-4 animate-fade-in"
               >
@@ -549,7 +555,7 @@ const isChatLoading = computed(() => {
                         class="text-xs font-bold text-highlighted flex gap-1.5 items-start leading-relaxed"
                       >
                         <UBadge
-                          :label="`Q${qIdx + 1}`"
+                          :label="'Q' + (Number(qIdx) + 1)"
                           color="primary"
                           size="sm"
                           class="rounded-lg shrink-0"
@@ -771,6 +777,85 @@ const isChatLoading = computed(() => {
 <style scoped>
 .prose {
   font-family: inherit;
+}
+.prose :deep(h1) {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--ui-text-highlighted);
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.prose :deep(h2) {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ui-text-highlighted);
+  margin-top: 1.25rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--ui-border-default);
+  padding-bottom: 0.25rem;
+}
+.prose :deep(h3) {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ui-text-highlighted);
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.prose :deep(p) {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+  line-height: 1.6;
+}
+.prose :deep(ul) {
+  list-style-type: disc;
+  margin-left: 1.25rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-left: 0.25rem;
+}
+.prose :deep(ol) {
+  list-style-type: decimal;
+  margin-left: 1.25rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-left: 0.25rem;
+}
+.prose :deep(li) {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.prose :deep(strong) {
+  font-weight: 700;
+  color: var(--ui-text-highlighted);
+}
+.prose :deep(code) {
+  font-family: monospace;
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--ui-primary);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  border: 1px solid var(--ui-border-default);
+}
+.prose :deep(pre) {
+  background-color: #171717;
+  color: #f5f5f5;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  font-family: monospace;
+  font-size: 0.85em;
+  overflow-x: auto;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #262626;
+}
+.prose :deep(pre code) {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  font-size: inherit;
 }
 .animate-fade-in {
   animation: fadeIn 0.4s ease-out;

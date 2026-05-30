@@ -21,6 +21,7 @@
     "ai": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
+    "marked": "^18.0.4",
     "nuxt": "^4.4.4",
     "zod": "catalog:"
   },
