@@ -126,6 +126,25 @@ function startNewRoadmap() {
     additionalNotes: "",
   };
 }
+
+// Calculate exact curriculum progress percentage dynamically!
+function getRoadmapProgress(roadmap: any): number {
+  if (!roadmap?.chapters) return 0;
+  let totalLessons = 0;
+  let completedLessons = 0;
+  for (const chapter of roadmap.chapters) {
+    if (chapter.lessons) {
+      for (const lesson of chapter.lessons) {
+        totalLessons++;
+        if (lesson.progress?.[0]?.isCompleted) {
+          completedLessons++;
+        }
+      }
+    }
+  }
+  if (totalLessons === 0) return 0;
+  return Math.round((completedLessons / totalLessons) * 100);
+}
 </script>
 
 <template>
@@ -541,9 +560,29 @@ function startNewRoadmap() {
                 >
                   {{ roadmap.title }}
                 </h3>
-                <p class="text-muted text-xs line-clamp-2 mt-1">
+                <p class="text-muted text-xs line-clamp-2 mt-1 mb-2">
                   {{ roadmap.description }}
                 </p>
+              </div>
+
+              <!-- Roadmap Learning Progress Bar -->
+              <div class="space-y-1.5 pt-1.5 border-t border-default/60">
+                <div
+                  class="flex items-center justify-between text-xs font-semibold"
+                >
+                  <span class="text-muted font-medium">Path Progress</span>
+                  <span class="text-primary font-bold"
+                    >{{ getRoadmapProgress(roadmap) }}%</span
+                  >
+                </div>
+                <div
+                  class="w-full bg-default/80 rounded-full h-1.5 overflow-hidden border border-default/60"
+                >
+                  <div
+                    class="bg-primary h-full rounded-full transition-all duration-500 ease-out"
+                    :style="{ width: `${getRoadmapProgress(roadmap)}%` }"
+                  ></div>
+                </div>
               </div>
             </div>
 

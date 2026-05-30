@@ -34,17 +34,11 @@ const roadmapsQuery = useQuery({
   ),
 });
 
-// Select active roadmap
-const activeRoadmap = computed(() => roadmapsQuery.data.value?.[0]);
-const activeRoadmapId = computed(() => activeRoadmap.value?.id || "");
-
-// Fetch progress analysis query for active roadmap dynamically from DB!
-const progressAnalysisQuery = useQuery(
+// Fetch full persistent user learning analytics compiled from DB!
+const analyticsQuery = useQuery(
   computed(() => ({
-    ...$orpc.onboarding.getProgressAnalysis.queryOptions({
-      input: { roadmapId: activeRoadmapId.value },
-    }),
-    enabled: !!session.value?.data?.user && !!activeRoadmapId.value,
+    ...$orpc.onboarding.getAnalyticsDashboard.queryOptions(),
+    enabled: !!session.value?.data?.user,
   })),
 );
 
@@ -53,17 +47,12 @@ const isDark = computed(() => colorMode.value === "dark");
 
 // Metric Cards Data compiled dynamically from DB
 const metrics = computed(() => {
-  const analysis = progressAnalysisQuery.data.value?.analysis;
+  const stats = analyticsQuery.data.value?.stats;
 
-  // Total study time hours
-  const totalTimeSpentSeconds = analysis?.totalTimeSpentSeconds || 0;
-  const totalHrsVal = (totalTimeSpentSeconds / 3600).toFixed(1);
-
-  // Completed lessons percentage count
-  const completedLessons = analysis?.completedLessons || 0;
-  const totalLessons = analysis?.totalLessons || 0;
-  const passedRate =
-    totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+  const totalHrsVal = stats?.totalTimeSpentHours || "0.0";
+  const completedLessons = stats?.completedLessonsCount || 0;
+  const totalLessons = stats?.totalLessonsCount || 0;
+  const passedRate = stats?.completionRate || 0;
 
   // Calculate dynamic mastery index level
   const level = Math.min(Math.floor(completedLessons / 3) + 1, 5);
@@ -98,99 +87,71 @@ const metrics = computed(() => {
 
 // Activity Timeline compiled dynamically from DB lesson completion logs
 const recentActivities = computed(() => {
-  const list: any[] = [];
-  const roadmap = roadmapsQuery.data.value?.[0];
-  if (roadmap?.chapters) {
-    for (const chapter of roadmap.chapters) {
-      for (const lesson of chapter.lessons) {
-        if (lesson.progress?.[0]?.isCompleted) {
-          list.push({
-            title: `Completed: "${lesson.title}"`,
-            category: `${lesson.type} Study`,
-            time: lesson.progress[0].completedAt
-              ? new Date(lesson.progress[0].completedAt).toLocaleDateString()
-              : "Just now",
-            desc: `Spent ${Math.round(lesson.progress[0].timeSpent)} seconds reading and completing study material.`,
-          });
-        }
-      }
-    }
-  }
-
-  // Fallback default message if no lessons completed yet
-  if (list.length === 0) {
-    list.push({
-      title: "Enrolled in learning track",
-      category: "Enrollment",
-      time: "Just now",
-      desc: "Gemini designed a personalized curriculum matching your goals and style.",
-    });
-  }
-  return list.slice(0, 3); // limit to latest 3 activities
+  return (
+    analyticsQuery.data.value?.recentActivities || [
+      {
+        title: "Enrolled in learning track",
+        category: "Enrollment",
+        time: "Just now",
+        desc: "Gemini designed a personalized curriculum matching your goals.",
+      },
+    ]
+  );
 });
 
 // --- 3. ApexCharts Configuration Options ---
 
 // 3.1 Spline Area Chart (Learning Velocity Hours Trend)
 const velocityChartSeries = computed(() => {
-  const totalMinutes =
-    progressAnalysisQuery.data.value?.analysis?.totalTimeSpentMinutes || 0;
-
-  // Scale a realistic spline velocity trend curve based on their actual study minutes
-  const baseData = [0.1, 0.3, 0.2, 0.5, 0.4, 0.8, 0.6];
-  const scale = Math.max(1, totalMinutes / 10);
-  const scaledData = baseData.map((val) => Math.round(val * scale * 10) / 10);
-
+  const dataList = analyticsQuery.data.value?.velocityCurve?.data || [
+    0, 0, 0, 0, 0, 0, 0,
+  ];
   return [
     {
       name: "Study Hours Trend",
-      data: scaledData,
+      data: dataList,
     },
   ];
 });
 
-const velocityChartOptions = computed(() => ({
-  chart: {
-    type: "area",
-    toolbar: { show: false },
-    background: "transparent",
-  },
-  colors: ["#f59e0b"], // Amber-500
-  dataLabels: { enabled: false },
-  stroke: { curve: "smooth", width: 3 },
-  grid: {
-    borderColor: isDark.value ? "#292524" : "#e7e5e4", // stone-800 vs stone-200
-    strokeDashArray: 4,
-  },
-  xaxis: {
-    categories: [
-      "Day 1",
-      "Day 5",
-      "Day 10",
-      "Day 15",
-      "Day 20",
-      "Day 25",
-      "Day 30",
-    ],
-    labels: {
-      style: {
-        colors: isDark.value ? "#a8a29e" : "#78716c", // stone-400 vs stone-500
-        fontFamily: "Inter, system-ui, sans-serif",
+const velocityChartOptions = computed(() => {
+  const categoriesList = analyticsQuery.data.value?.velocityCurve
+    ?.categories || ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  return {
+    chart: {
+      type: "area",
+      toolbar: { show: false },
+      background: "transparent",
+    },
+    colors: ["#f59e0b"], // Amber-500
+    dataLabels: { enabled: false },
+    stroke: { curve: "smooth", width: 3 },
+    grid: {
+      borderColor: isDark.value ? "#292524" : "#e7e5e4", // stone-800 vs stone-200
+      strokeDashArray: 4,
+    },
+    xaxis: {
+      categories: categoriesList,
+      labels: {
+        style: {
+          colors: isDark.value ? "#a8a29e" : "#78716c", // stone-400 vs stone-500
+          fontFamily: "Inter, system-ui, sans-serif",
+        },
       },
     },
-  },
-  yaxis: {
-    labels: {
-      style: {
-        colors: isDark.value ? "#a8a29e" : "#78716c",
-        fontFamily: "Inter, system-ui, sans-serif",
+    yaxis: {
+      labels: {
+        style: {
+          colors: isDark.value ? "#a8a29e" : "#78716c",
+          fontFamily: "Inter, system-ui, sans-serif",
+        },
       },
     },
-  },
-  tooltip: {
-    theme: isDark.value ? "dark" : "light",
-  },
-}));
+    tooltip: {
+      theme: isDark.value ? "dark" : "light",
+    },
+  };
+});
 
 // 3.2 Radar Chart (Skill Dimensions Index)
 const radarChartSeries = [
@@ -236,8 +197,7 @@ const radarChartOptions = computed(() => ({
 
 // 3.3 Bar Chart (Study Minutes Spent by Content Type)
 const barChartSeries = computed(() => {
-  const timeByType =
-    progressAnalysisQuery.data.value?.analysis?.timeSpentByType || {};
+  const timeByType = analyticsQuery.data.value?.stats?.timeSpentByType || {};
   return [
     {
       name: "Study Minutes",
@@ -298,9 +258,9 @@ const barChartOptions = computed(() => ({
 
 // 3.4 Donut Chart (Curriculum Progress Completed vs Remaining)
 const donutChartSeries = computed(() => {
-  const analysis = progressAnalysisQuery.data.value?.analysis;
-  const completed = analysis?.completedLessons || 0;
-  const total = analysis?.totalLessons || 0;
+  const stats = analyticsQuery.data.value?.stats;
+  const completed = stats?.completedLessonsCount || 0;
+  const total = stats?.totalLessonsCount || 0;
   const remaining = Math.max(0, total - completed);
 
   // Return completed vs remaining count

@@ -311,6 +311,53 @@ export const onboardingRouter = {
         },
       });
 
+      // Synchronize overall Enrollment progressPercent in the DB!
+      try {
+        const lesson = await prisma.lesson.findUnique({
+          where: { id: input.lessonId },
+          include: {
+            chapter: true,
+          },
+        });
+
+        if (lesson?.chapter?.roadmapId) {
+          const roadmapId = lesson.chapter.roadmapId;
+
+          // Count all lessons of this roadmap to calculate exact percentage
+          const allLessons = await prisma.lesson.findMany({
+            where: {
+              chapter: {
+                roadmapId,
+              },
+            },
+            include: {
+              progress: {
+                where: { userId },
+              },
+            },
+          });
+
+          const total = allLessons.length;
+          const completed = allLessons.filter(
+            (l) => l.progress?.[0]?.isCompleted,
+          ).length;
+          const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+          // Update the Enrollment table record progressPercent
+          await prisma.enrollment.updateMany({
+            where: {
+              userId,
+              roadmapId,
+            },
+            data: {
+              progressPercent: pct,
+            },
+          });
+        }
+      } catch (syncErr) {
+        console.error("Failed to sync enrollment progress:", syncErr);
+      }
+
       return { success: true, progress };
     }),
 
@@ -397,6 +444,129 @@ export const onboardingRouter = {
       });
       return chatSession?.messages || [];
     }),
+
+  getAnalyticsDashboard: protectedProcedure.handler(async ({ context }) => {
+    const userId = context.session.user.id;
+
+    // 1. Fetch all lesson progress logs for this user with lesson details
+    const progresses = await prisma.lessonProgress.findMany({
+      where: { userId },
+      include: {
+        lesson: true,
+      },
+      orderBy: { lastStudiedAt: "desc" },
+    });
+
+    // 2. Fetch all enrolled roadmaps for chapters and lessons
+    const roadmaps = await prisma.roadmap.findMany({
+      where: { userId },
+      include: {
+        chapters: {
+          include: {
+            lessons: true,
+          },
+        },
+      },
+    });
+
+    let totalLessonsCount = 0;
+    let completedLessonsCount = 0;
+    let totalTimeSpentSeconds = 0;
+
+    // Group study time spent by type
+    const timeSpentByType: Record<string, number> = {
+      TEXT: 0,
+      VIDEO: 0,
+      AUDIO: 0,
+      PDF: 0,
+    };
+
+    for (const progress of progresses) {
+      totalTimeSpentSeconds += progress.timeSpent;
+      const type = progress.lesson?.type || "TEXT";
+      timeSpentByType[type] = (timeSpentByType[type] || 0) + progress.timeSpent;
+      if (progress.isCompleted) {
+        completedLessonsCount++;
+      }
+    }
+
+    for (const roadmap of roadmaps) {
+      for (const chapter of roadmap.chapters) {
+        totalLessonsCount += chapter.lessons?.length || 0;
+      }
+    }
+
+    // 3. Compile learning velocity curve based on studied dates
+    const lastStudiedDays = progresses
+      .slice(0, 7)
+      .map((p) => {
+        const date = new Date(p.lastStudiedAt).toLocaleDateString("en-US", {
+          weekday: "short",
+        });
+        return {
+          day: date,
+          hours: Math.round((p.timeSpent / 3600) * 100) / 100 || 0.1,
+        };
+      })
+      .reverse();
+
+    const velocityDays =
+      lastStudiedDays.length > 0
+        ? lastStudiedDays
+        : [
+            { day: "Mon", hours: 0 },
+            { day: "Tue", hours: 0 },
+            { day: "Wed", hours: 0 },
+            { day: "Thu", hours: 0 },
+            { day: "Fri", hours: 0 },
+            { day: "Sat", hours: 0 },
+            { day: "Sun", hours: 0 },
+          ];
+
+    // 4. Construct a timeline of actual recent activities
+    const activities = progresses.slice(0, 4).map((p) => ({
+      title: p.isCompleted
+        ? `Completed: "${p.lesson?.title}"`
+        : `Studied: "${p.lesson?.title}"`,
+      category: p.lesson?.type || "TEXT",
+      time: new Date(p.lastStudiedAt).toLocaleDateString(),
+      desc: `Spent ${Math.round(p.timeSpent)} seconds studying this lesson.`,
+    }));
+
+    return {
+      success: true,
+      stats: {
+        totalTimeSpentSeconds,
+        totalTimeSpentMinutes:
+          Math.round((totalTimeSpentSeconds / 60) * 10) / 10,
+        totalTimeSpentHours:
+          Math.round((totalTimeSpentSeconds / 3600) * 10) / 10,
+        totalLessonsCount,
+        completedLessonsCount,
+        completionRate:
+          totalLessonsCount > 0
+            ? Math.round((completedLessonsCount / totalLessonsCount) * 100)
+            : 0,
+        activeRoadmapsCount: roadmaps.length,
+        timeSpentByType,
+      },
+      velocityCurve: {
+        categories: velocityDays.map((d) => d.day),
+        data: velocityDays.map((d) => d.hours),
+      },
+      recentActivities:
+        activities.length > 0
+          ? activities
+          : [
+              {
+                title: "Enrolled in learning track",
+                category: "Enrollment",
+                time: "Just now",
+                desc: "Gemini designed a personalized curriculum matching your goals.",
+              },
+            ],
+    };
+  }),
 
   getGenerationStatus: protectedProcedure.handler(async ({ context }) => {
     const userId = context.session.user.id;
