@@ -1,0 +1,34 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@ai-sdk/vue": "^3.0.3",
+    "@nuxt/ui": "^4.5.1",
+    "@orpc/client": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/tanstack-query": "^1.13.14",
+    "@roadmap_ai/api": "workspace:*",
+    "@roadmap_ai/env": "workspace:*",
+    "@tanstack/vue-query": "^5.92.9",
+    "ai": "catalog:",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "nuxt": "^4.4.4",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.96",
+    "@roadmap_ai/config": "workspace:*",
+    "@tanstack/vue-query-devtools": "^6.1.5",
+    "tailwindcss": "^4.2.1",
+    "typescript": "catalog:"
+  }
+}

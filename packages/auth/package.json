@@ -1,0 +1,24 @@
+{
+  "name": "@roadmap_ai/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@roadmap_ai/db": "workspace:*",
+    "@roadmap_ai/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@roadmap_ai/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,3 @@
+{
+  "extends": "@roadmap_ai/config/tsconfig.base.json"
+}
