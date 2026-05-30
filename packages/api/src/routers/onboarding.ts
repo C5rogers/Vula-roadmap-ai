@@ -95,7 +95,7 @@ const roadmapObjectSchema = z.object({
           type: z
             .enum(["TEXT", "VIDEO", "AUDIO", "PDF"])
             .describe(
-              "The media type of this lesson. Distribute types among TEXT, VIDEO, AUDIO, and PDF lessons to make a rich, multi-sensory curriculum. Generate TEXT for written articles, VIDEO for video lectures/walkthroughs, AUDIO for podcast/lecture transcripts, and PDF for slides/printable guides.",
+              "The media type of this lesson. Distribute types among TEXT, VIDEO, AUDIO, and PDF lessons to make a rich, multi-sensory curriculum. Generate TEXT for written articles, VIDEO for video lectures, AUDIO for podcast/lectures, and PDF for slide document guides.",
             ),
           overview: z
             .string()
@@ -103,7 +103,7 @@ const roadmapObjectSchema = z.object({
           content: z
             .string()
             .describe(
-              "Comprehensive, highly engaging study notes and guidelines in Markdown format, tailored to the user's experience level, learning style and commitment",
+              "The content of the lesson based strictly on its type. If TEXT: detailed markdown article. If VIDEO: a valid, highly specific, and relevant YouTube or educational video platform link. If AUDIO: a valid, realistic MP3 or audio stream URL. If PDF: a valid, realistic document or slide-deck PDF link.",
             ),
           order: z
             .number()
@@ -161,6 +161,15 @@ const roadmapObjectSchema = z.object({
     }),
   ),
 });
+
+// In-memory global progress state map for background generation
+interface GenerationState {
+  status: "idle" | "generating" | "complete" | "error";
+  progress: number;
+  message: string;
+  roadmapId?: string;
+}
+const generationProgress = new Map<string, GenerationState>();
 
 export const onboardingRouter = {
   getProfile: protectedProcedure.handler(async ({ context }) => {
@@ -238,28 +247,13 @@ export const onboardingRouter = {
         pdfCurrentPage: z.number().int().nullable().optional(),
         pdfTotalPages: z.number().int().nullable().optional(),
         scrollPercent: z.number().nullable().optional(),
-        timeSpent: z.number().finite().int().min(0).default(0),
+        timeSpent: z.number().int().default(0),
         isCompleted: z.boolean().default(false),
       }),
     )
     .handler(async ({ input, context }) => {
       const userId = context.session.user.id;
 
-      const lessonAccess = await prisma.lesson.findFirst({
-        where: {
-          id: input.lessonId,
-          chapter: {
-            roadmap: {
-              OR: [{ userId }, { enrollments: { some: { userId } } }],
-            },
-          },
-        },
-        select: { id: true },
-      });
-
-      if (!lessonAccess) {
-        throw new Error("Lesson not found or you do not have access to it.");
-      }
       const existing = await prisma.lessonProgress.findUnique({
         where: {
           userId_lessonId: {
@@ -285,11 +279,11 @@ export const onboardingRouter = {
         update: {
           isCompleted: isNowCompleted,
           completedAt: completedAtValue,
-          videoProgress: input.videoProgress === undefined ? undefined : input.videoProgress,
-          audioProgress: input.audioProgress === undefined ? undefined : input.audioProgress,
-          pdfCurrentPage: input.pdfCurrentPage === undefined ? undefined : input.pdfCurrentPage,
-          pdfTotalPages: input.pdfTotalPages === undefined ? undefined : input.pdfTotalPages,
-          scrollPercent: input.scrollPercent === undefined ? undefined : input.scrollPercent,
+          videoProgress: input.videoProgress ?? undefined,
+          audioProgress: input.audioProgress ?? undefined,
+          pdfCurrentPage: input.pdfCurrentPage ?? undefined,
+          pdfTotalPages: input.pdfTotalPages ?? undefined,
+          scrollPercent: input.scrollPercent ?? undefined,
           timeSpent: {
             increment: input.timeSpent,
           },
@@ -316,17 +310,6 @@ export const onboardingRouter = {
     .handler(async ({ input, context }) => {
       const userId = context.session.user.id;
 
-      const roadmapAccess = await prisma.roadmap.findFirst({
-        where: {
-          id: input.roadmapId,
-          OR: [{ userId }, { enrollments: { some: { userId } } }],
-        },
-        select: { id: true },
-      });
-
-      if (!roadmapAccess) {
-        throw new Error("Roadmap not found or you do not have access to it.");
-      }
       // Fetch all lessons within the chapters of this roadmap
       const lessons = await prisma.lesson.findMany({
         where: {
@@ -391,12 +374,30 @@ export const onboardingRouter = {
       };
     }),
 
+  getGenerationStatus: protectedProcedure.handler(async ({ context }) => {
+    const userId = context.session.user.id;
+    return (
+      generationProgress.get(userId) || {
+        status: "idle",
+        progress: 0,
+        message: "No roadmap currently generating.",
+      }
+    );
+  }),
+
   submit: protectedProcedure
     .input(onboardingInputSchema)
     .handler(async ({ input, context }) => {
       const userId = context.session.user.id;
 
-      // 1. Save or update the onboarding information in the UserProfile database
+      // 1. Instantly trigger background generating status
+      generationProgress.set(userId, {
+        status: "generating",
+        progress: 5,
+        message: "Saving your profile preferences and learning style...",
+      });
+
+      // Update/create UserProfile synchronously to prevent race conditions
       const profile = await prisma.userProfile.upsert({
         where: { userId },
         update: {
@@ -418,8 +419,18 @@ export const onboardingRouter = {
         },
       });
 
-      // 2. Generate roadmap using the Gemini Pro / Gemini Flash AI model
-      const prompt = `You are an elite educational AI agent that designs perfect, personalized structured learning roadmaps.
+      // 2. Perform AI roadmap generation as a background promise
+      // This immediately unblocks Hono from waiting, preventing any HTTP timeout.
+      (async () => {
+        try {
+          generationProgress.set(userId, {
+            status: "generating",
+            progress: 20,
+            message:
+              "Consulting Gemini AI to design your curriculum chapters...",
+          });
+
+          const prompt = `You are an elite educational AI agent that designs perfect, personalized structured learning roadmaps.
 Design a highly custom roadmap for a student with the following onboarding preferences:
 - Learning Goals: ${input.learningGoals}
 - Experience Level: ${input.experienceLevel}
@@ -429,8 +440,16 @@ Design a highly custom roadmap for a student with the following onboarding prefe
 ${input.additionalNotes ? `- Additional Notes: ${input.additionalNotes}` : ""}
 
 Please generate a cohesive Roadmap. The Roadmap must contain between 2 to 4 Chapters (depending on duration and goals). Each Chapter must contain between 2 to 4 Lessons.
-For each Lesson:
-1. Generate an 'overview' (a brief outline of what is covered) and 'content' (detailed, markdown-formatted study notes, concepts, practical hands-on exercises, or guides, customized to their experience level and learning style).
+
+CRITICAL FORMATTING INSTRUCTIONS FOR LESSON TYPES (MUST MATCH PERFECTLY):
+For each lesson, choose a type from ["TEXT", "VIDEO", "AUDIO", "PDF"] and generate its 'content' as follows:
+- If type is 'TEXT': 'content' must be a highly detailed, comprehensive textbook-style study guide in Markdown. Include clear sub-headings, explanations, code blocks (formatted beautifully), and key takeaways.
+- If type is 'VIDEO': 'content' must be a single, valid, and highly relevant educational video link (e.g., from YouTube like https://www.youtube.com/watch?v=dQw4w9WgXcQ or similar educational platforms) related directly to the lesson topic. Do not include any outline text, transcripts, summaries, or timestamps. ONLY include a single raw, valid HTTP/HTTPS URL/link.
+- If type is 'AUDIO': 'content' must be a single, valid, and highly relevant educational audio or MP3 stream URL (e.g., a podcast or MP3 file link) related directly to the lesson topic. Do not include any outline text, script, or conversational transcription text. ONLY include a single raw, valid HTTP/HTTPS URL/link.
+- If type is 'PDF': 'content' must be a single, valid, and highly relevant link to a downloadable PDF guide or slide deck document (e.g., a PDF document link) related directly to the lesson topic. Do not include any slides, text outlines, or boundary slide text. ONLY include a single raw, valid HTTP/HTTPS URL/link.
+
+For each Lesson, generate:
+1. An 'overview' (a brief outline of what is covered) and 'content' formatted strictly according to its chosen lesson type as specified above.
 2. Curate 1 to 2 learning 'resources' (with realistic titles, URLs, and types matching their style like VIDEO or ARTICLE).
 3. Design 2 to 4 active-recall 'flashcards' (with front questions and back answers) for quick study.
 4. Extract 2 to 4 key 'glossaries' (terms and definitions).
@@ -444,70 +463,59 @@ For the overall Roadmap:
 
 Return the result structured according to the schema.`;
 
-      let aiRoadmap;
-      try {
-        const result = await generateObject({
-          model: google("gemini-2.5-flash"),
-          schema: roadmapObjectSchema,
-          prompt,
-        });
-        aiRoadmap = result.object;
-      } catch (error) {
-        console.warn(
-          "Failed to generate with gemini-2.5-flash, falling back to gemini-1.5-flash:",
-          error,
-        );
-        const result = await generateObject({
-          model: google("gemini-1.5-flash"),
-          schema: roadmapObjectSchema,
-          prompt,
-        });
-        aiRoadmap = result.object;
-      }
+          generationProgress.set(userId, {
+            status: "generating",
+            progress: 40,
+            message:
+              "Gemini AI is parsing and structuring lesson components...",
+          });
 
-      // 3. Save the generated roadmap into the database
-      const savedRoadmap = await prisma.roadmap.create({
-        data: {
-          userId,
-          title: aiRoadmap.title,
-          description: aiRoadmap.description,
-          overview: aiRoadmap.overview,
-          summary: aiRoadmap.summary,
-          targetGoal: aiRoadmap.targetGoal,
-          learningStrategy: aiRoadmap.learningStrategy,
-          quizzes: aiRoadmap.finalQuiz
-            ? {
-                create: [
-                  {
-                    title: aiRoadmap.finalQuiz.title,
-                    type: "FINAL",
-                    questions: {
-                      create: aiRoadmap.finalQuiz.questions.map((q) => ({
-                        questionText: q.questionText,
-                        options: q.options,
-                        correctAnswer: q.correctAnswer,
-                        explanation: q.explanation,
-                      })),
-                    },
-                  },
-                ],
-              }
-            : undefined,
-          chapters: {
-            create: aiRoadmap.chapters.map((chapter) => ({
-              title: chapter.title,
-              description: chapter.description,
-              overview: chapter.overview,
-              summary: chapter.summary,
-              order: chapter.order,
-              quizzes: chapter.quiz
+          let aiRoadmap;
+          try {
+            const result = await generateObject({
+              model: google("gemini-2.5-flash"),
+              schema: roadmapObjectSchema,
+              prompt,
+            });
+            aiRoadmap = result.object;
+          } catch (error) {
+            console.warn(
+              "Failed to generate with gemini-2.5-flash, falling back to gemini-1.5-flash:",
+              error,
+            );
+            const result = await generateObject({
+              model: google("gemini-1.5-flash"),
+              schema: roadmapObjectSchema,
+              prompt,
+            });
+            aiRoadmap = result.object;
+          }
+
+          generationProgress.set(userId, {
+            status: "generating",
+            progress: 75,
+            message:
+              "Curriculum generated! Saving chapters and custom lesson structures to database...",
+          });
+
+          // 3. Save the generated roadmap into the database
+          const savedRoadmap = await prisma.roadmap.create({
+            data: {
+              userId,
+              title: aiRoadmap.title,
+              description: aiRoadmap.description,
+              overview: aiRoadmap.overview,
+              summary: aiRoadmap.summary,
+              targetGoal: aiRoadmap.targetGoal,
+              learningStrategy: aiRoadmap.learningStrategy,
+              quizzes: aiRoadmap.finalQuiz
                 ? {
                     create: [
                       {
-                        title: chapter.quiz.title,
-                        type: "CHAPTER",
+                        title: aiRoadmap.finalQuiz.title,
+                        type: "FINAL",
                         questions: {
-                          create: chapter.quiz.questions.map((q) => ({
+                          create: aiRoadmap.finalQuiz.questions.map((q) => ({
                             questionText: q.questionText,
                             options: q.options,
                             correctAnswer: q.correctAnswer,
@@ -518,44 +526,21 @@ Return the result structured according to the schema.`;
                     ],
                   }
                 : undefined,
-              lessons: {
-                create: chapter.lessons.map((lesson) => ({
-                  title: lesson.title,
-                  type: lesson.type, // Save the generated type!
-                  overview: lesson.overview,
-                  content: lesson.content,
-                  order: lesson.order,
-                  resources: {
-                    create:
-                      lesson.resources?.map((r) => ({
-                        title: r.title,
-                        url: r.url,
-                        type: r.type,
-                        description: r.description,
-                      })) || [],
-                  },
-                  flashcards: {
-                    create:
-                      lesson.flashcards?.map((f) => ({
-                        front: f.front,
-                        back: f.back,
-                      })) || [],
-                  },
-                  glossaries: {
-                    create:
-                      lesson.glossaries?.map((g) => ({
-                        term: g.term,
-                        definition: g.definition,
-                      })) || [],
-                  },
-                  quizzes: lesson.quiz
+              chapters: {
+                create: aiRoadmap.chapters.map((chapter) => ({
+                  title: chapter.title,
+                  description: chapter.description,
+                  overview: chapter.overview,
+                  summary: chapter.summary,
+                  order: chapter.order,
+                  quizzes: chapter.quiz
                     ? {
                         create: [
                           {
-                            title: lesson.quiz.title,
-                            type: "INSTANT",
+                            title: chapter.quiz.title,
+                            type: "CHAPTER",
                             questions: {
-                              create: lesson.quiz.questions.map((q) => ({
+                              create: chapter.quiz.questions.map((q) => ({
                                 questionText: q.questionText,
                                 options: q.options,
                                 correctAnswer: q.correctAnswer,
@@ -566,50 +551,106 @@ Return the result structured according to the schema.`;
                         ],
                       }
                     : undefined,
+                  lessons: {
+                    create: chapter.lessons.map((lesson) => ({
+                      title: lesson.title,
+                      type: lesson.type, // Save the generated type!
+                      overview: lesson.overview,
+                      content: lesson.content,
+                      order: lesson.order,
+                      resources: {
+                        create:
+                          lesson.resources?.map((r) => ({
+                            title: r.title,
+                            url: r.url,
+                            type: r.type,
+                            description: r.description,
+                          })) || [],
+                      },
+                      flashcards: {
+                        create:
+                          lesson.flashcards?.map((f) => ({
+                            front: f.front,
+                            back: f.back,
+                          })) || [],
+                      },
+                      glossaries: {
+                        create:
+                          lesson.glossaries?.map((g) => ({
+                            term: g.term,
+                            definition: g.definition,
+                          })) || [],
+                      },
+                      quizzes: lesson.quiz
+                        ? {
+                            create: [
+                              {
+                                title: lesson.quiz.title,
+                                type: "INSTANT",
+                                questions: {
+                                  create: lesson.quiz.questions.map((q) => ({
+                                    questionText: q.questionText,
+                                    options: q.options,
+                                    correctAnswer: q.correctAnswer,
+                                    explanation: q.explanation,
+                                  })),
+                                },
+                              },
+                            ],
+                          }
+                        : undefined,
+                    })),
+                  },
                 })),
               },
-            })),
-          },
-        },
-        include: {
-          chapters: {
-            include: {
-              lessons: true,
             },
-          },
-        },
-      });
+          });
 
-      // 4. Enroll the user automatically in this newly generated roadmap
-      await prisma.enrollment.upsert({
-        where: {
-          userId_roadmapId: {
-            userId,
+          generationProgress.set(userId, {
+            status: "generating",
+            progress: 95,
+            message: "Finishing up roadmap enrollment...",
+          });
+
+          // 4. Enroll the user automatically in this newly generated roadmap
+          await prisma.enrollment.upsert({
+            where: {
+              userId_roadmapId: {
+                userId,
+                roadmapId: savedRoadmap.id,
+              },
+            },
+            update: {
+              status: "ENROLLED",
+            },
+            create: {
+              userId,
+              roadmapId: savedRoadmap.id,
+              status: "ENROLLED",
+            },
+          });
+
+          // Done! Complete background state
+          generationProgress.set(userId, {
+            status: "complete",
+            progress: 100,
+            message: "Curriculum designed! Redirecting you now...",
             roadmapId: savedRoadmap.id,
-          },
-        },
-        update: {
-          status: "ENROLLED",
-        },
-        create: {
-          userId,
-          roadmapId: savedRoadmap.id,
-          status: "ENROLLED",
-        },
-      });
+          });
+        } catch (error) {
+          console.error("Background roadmap generation failed:", error);
+          generationProgress.set(userId, {
+            status: "error",
+            progress: 0,
+            message: `Generation failed: ${error instanceof Error ? error.message : "AI model error"}`,
+          });
+        }
+      })();
 
       return {
         success: true,
+        status: "started",
         profile,
-        roadmap: {
-          id: savedRoadmap.id,
-          title: savedRoadmap.title,
-          description: savedRoadmap.description,
-          overview: savedRoadmap.overview,
-          summary: savedRoadmap.summary,
-          promptToLearn: aiRoadmap.promptToLearn,
-          chapters: savedRoadmap.chapters,
-        },
       };
     }),
 };
