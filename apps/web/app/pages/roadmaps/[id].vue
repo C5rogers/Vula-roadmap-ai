@@ -14,6 +14,7 @@ const router = useRouter();
 
 definePageMeta({
   middleware: ["auth"],
+  layout: "dashboard",
 });
 
 const session = $authClient.useSession();
@@ -31,12 +32,22 @@ const activeTab = ref<
   "notes" | "flashcards" | "glossary" | "resources" | "quiz"
 >("notes");
 
+const openChapters = ref<Record<string, boolean>>({});
+
+function toggleChapter(chapterId: string) {
+  openChapters.value[chapterId] = !openChapters.value[chapterId];
+}
+
 // Watch roadmap load to set default active lesson
 watch(
   () => roadmapQuery.data.value,
   (roadmap) => {
     if (roadmap?.chapters?.[0]?.lessons?.[0] && !activeLesson.value) {
       activeLesson.value = roadmap.chapters[0].lessons[0];
+    }
+    // Open the first chapter by default
+    if (roadmap?.chapters?.[0]) {
+      openChapters.value[roadmap.chapters[0].id] = true;
     }
   },
   { immediate: true },
@@ -174,11 +185,30 @@ function parseMarkdown(md: string): string {
   if (!md) return "";
   return marked.parse(md) as string;
 }
+
+const showMobileChat = ref(false);
+const isMobileSyllabusOpen = ref(false);
+
+function isYouTubeUrl(url: string): boolean {
+  if (!url) return false;
+  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(url);
+}
+
+function getYouTubeEmbedUrl(url: string): string {
+  if (!url) return "";
+  let videoId = "";
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  if (match && match[2] && match[2].length === 11) {
+    videoId = match[2];
+  }
+  return `https://www.youtube-nocookie.com/embed/${videoId}`;
+}
 </script>
 
 <template>
   <UContainer
-    class="py-6 max-w-7xl min-h-[calc(100vh-var(--ui-header-height)-3rem)]"
+    class="py-6 max-w-[1600px] min-h-[calc(100vh-var(--ui-header-height)-3rem)]"
   >
     <!-- --- Loading State --- -->
     <div
@@ -198,7 +228,7 @@ function parseMarkdown(md: string): string {
       color="error"
       icon="i-lucide-alert-circle"
       title="Failed to load roadmap"
-      :description="roadmapQuery.error.value?.message"
+      :description="roadmapQuery.error.value?.message || 'An error occurred while loading the roadmap.'"
     />
 
     <!-- --- Detail Active Roadmap and Syllabus View --- -->
@@ -236,9 +266,60 @@ function parseMarkdown(md: string): string {
         </div>
 
         <!-- Layout: Double Column inside the detail page (Syllabus vs Lesson view) -->
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-5 pt-2">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
+          <!-- Mobile Syllabus Accordion (Hidden on Desktop) -->
+          <div class="lg:hidden border border-default rounded-xl bg-elevated/20 overflow-hidden">
+            <button 
+              @click="isMobileSyllabusOpen = !isMobileSyllabusOpen"
+              class="w-full px-4 py-3 text-sm font-bold text-highlighted flex items-center justify-between bg-elevated/40 hover:bg-elevated/60 transition-colors"
+            >
+              <span class="flex items-center gap-2">
+                <UIcon name="i-lucide-book" class="text-primary" />
+                <span>Syllabus Outline ({{ activeLesson ? activeLesson.title : 'Select a Lesson' }})</span>
+              </span>
+              <UIcon :name="isMobileSyllabusOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
+            </button>
+            
+            <div v-if="isMobileSyllabusOpen" class="border-t border-default max-h-[50vh] overflow-y-auto p-2 space-y-2 animate-fade-in">
+              <div
+                v-for="chapter in roadmapQuery.data.value.chapters"
+                :key="chapter.id"
+                class="border border-default rounded-lg overflow-hidden bg-elevated/10"
+              >
+                <!-- Mobile Chapter Header Button -->
+                <button
+                  @click="toggleChapter(chapter.id)"
+                  class="w-full text-left bg-elevated/20 hover:bg-elevated/40 cursor-pointer transition-colors px-3 py-2 flex items-center justify-between gap-2 border-b border-default"
+                >
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-[10px] font-bold text-primary uppercase tracking-wider">Chapter {{ chapter.order }}</span>
+                    <span class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5">{{ chapter.title }}</span>
+                  </div>
+                  <UIcon 
+                    :name="openChapters[chapter.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" 
+                    class="w-4 h-4 text-stone-500 dark:text-stone-400 shrink-0"
+                  />
+                </button>
+
+                <!-- Lessons inside chapter (Collapsible) -->
+                <div v-if="openChapters[chapter.id]" class="divide-y divide-default animate-fade-in">
+                  <button
+                    v-for="lesson in chapter.lessons"
+                    :key="lesson.id"
+                    @click="activeLesson = lesson; isMobileSyllabusOpen = false"
+                    class="w-full text-left px-3 py-2.5 text-xs hover:bg-primary/5 cursor-pointer transition-colors flex items-center justify-between gap-2"
+                    :class="activeLesson?.id === lesson.id ? 'bg-primary/10 border-l-2 border-primary font-bold text-primary' : 'text-stone-500 dark:text-stone-300'"
+                  >
+                    <span class="line-clamp-2">{{ lesson.order }}. {{ lesson.title }}</span>
+                    <UIcon v-if="activeLesson?.id === lesson.id" name="i-lucide-book-open" class="h-3.5 w-3.5 text-primary shrink-0" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Syllabus Chapter/Lesson List accordion (4 cols) -->
-          <div class="md:col-span-4 space-y-4">
+          <div class="hidden lg:block lg:col-span-4 space-y-4">
             <div
               class="font-bold text-sm text-highlighted px-1 uppercase tracking-wider flex items-center gap-1.5"
             >
@@ -254,31 +335,32 @@ function parseMarkdown(md: string): string {
                 :key="chapter.id"
                 class="border border-default rounded-xl overflow-hidden bg-elevated/20"
               >
-                <!-- Chapter Header -->
-                <div
-                  class="bg-elevated/40 px-3 py-2.5 border-b border-default flex flex-col"
+                <!-- Chapter Header Button -->
+                <button
+                  @click="toggleChapter(chapter.id)"
+                  class="w-full text-left bg-elevated/40 hover:bg-elevated/60 cursor-pointer transition-colors px-3 py-2.5 border-b border-default flex items-center justify-between gap-2"
                 >
-                  <span
-                    class="text-[10px] font-bold text-primary uppercase tracking-wider"
-                    >Chapter {{ chapter.order }}</span
-                  >
-                  <span
-                    class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5"
-                    >{{ chapter.title }}</span
-                  >
-                </div>
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-[10px] font-bold text-primary uppercase tracking-wider">Chapter {{ chapter.order }}</span>
+                    <span class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5">{{ chapter.title }}</span>
+                  </div>
+                  <UIcon 
+                    :name="openChapters[chapter.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" 
+                    class="w-4 h-4 text-stone-500 dark:text-stone-400 shrink-0"
+                  />
+                </button>
 
-                <!-- Lessons inside chapter -->
-                <div class="divide-y divide-default">
+                <!-- Lessons inside chapter (Collapsible) -->
+                <div v-if="openChapters[chapter.id]" class="divide-y divide-default animate-fade-in">
                   <button
                     v-for="lesson in chapter.lessons"
                     :key="lesson.id"
                     @click="activeLesson = lesson"
-                    class="w-full text-left px-3 py-2.5 text-xs hover:bg-primary/5 transition-colors flex items-center justify-between gap-2"
+                    class="w-full text-left px-3 py-2.5 text-xs hover:bg-primary/5 cursor-pointer transition-colors flex items-center justify-between gap-2"
                     :class="
                       activeLesson?.id === lesson.id
                         ? 'bg-primary/10 border-l-2 border-primary font-bold text-primary'
-                        : 'text-neutral-600'
+                        : 'text-stone-500 dark:text-stone-300'
                     "
                   >
                     <span class="line-clamp-2"
@@ -296,7 +378,7 @@ function parseMarkdown(md: string): string {
           </div>
 
           <!-- Active Lesson Content & Interactive area (8 cols) -->
-          <div class="md:col-span-8">
+          <div class="col-span-1 lg:col-span-8">
             <div
               v-if="activeLesson"
               class="border border-default rounded-2xl p-5 bg-elevated/10 space-y-5 shadow-sm min-h-[50vh]"
@@ -361,7 +443,7 @@ function parseMarkdown(md: string): string {
                   >Study Content</span
                 >
                 <div
-                  class="prose dark:prose-invert text-xs leading-6 max-w-none text-neutral-700 bg-default/40 p-4 rounded-xl border border-default/60"
+                  class="prose dark:prose-invert text-xs leading-6 max-w-none text-stone-700 dark:text-stone-200 bg-default/40 p-4 rounded-xl border border-default/60"
                   v-html="parseMarkdown(activeLesson.content)"
                 />
               </div>
@@ -444,7 +526,6 @@ function parseMarkdown(md: string): string {
 
               <!-- Tab 3: Glossary (Definitions list) -->
               <div
-                v-for="g in activeLesson.glossaries"
                 v-else-if="activeTab === 'glossary'"
                 class="space-y-4 animate-fade-in"
               >
@@ -488,42 +569,70 @@ function parseMarkdown(md: string): string {
                 >
                 <div
                   v-if="activeLesson.resources?.length"
-                  class="grid sm:grid-cols-2 gap-3.5"
+                  class="grid grid-cols-1 md:grid-cols-2 gap-4"
                 >
-                  <a
-                    v-for="r in activeLesson.resources"
-                    :key="r.id"
-                    :href="r.url"
-                    target="_blank"
-                    class="p-4 rounded-xl border border-default bg-elevated/20 hover:border-primary/50 hover:shadow-md transition-all duration-300 block space-y-1.5 group"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <span
-                        class="text-xs font-bold text-highlighted group-hover:text-primary transition-colors flex items-center gap-1.5"
-                      >
-                        <UIcon
-                          :name="
-                            r.type === 'VIDEO'
-                              ? 'i-lucide-play-circle'
-                              : 'i-lucide-external-link'
-                          "
-                        />
-                        {{ r.title }}
-                      </span>
-                      <UBadge
-                        :label="r.type"
-                        color="neutral"
-                        size="sm"
-                        variant="subtle"
-                      />
-                    </div>
+                  <template v-for="r in activeLesson.resources" :key="r.id">
+                    <!-- YouTube Video Embed -->
                     <div
-                      class="text-[11px] text-muted leading-relaxed line-clamp-2"
-                      v-if="r.description"
+                      v-if="r.type === 'VIDEO' && isYouTubeUrl(r.url)"
+                      class="md:col-span-2 p-4 rounded-xl border border-default bg-elevated/20 space-y-3 shadow-sm flex flex-col"
                     >
-                      {{ r.description }}
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs font-bold text-highlighted flex items-center gap-1.5">
+                          <UIcon name="i-lucide-play-circle" class="text-primary" />
+                          {{ r.title }}
+                        </span>
+                        <UBadge label="YOUTUBE" color="primary" size="sm" variant="subtle" />
+                      </div>
+                      <div class="aspect-video rounded-xl overflow-hidden border border-default shadow-inner bg-black">
+                        <iframe
+                          :src="getYouTubeEmbedUrl(r.url)"
+                          class="w-full h-full"
+                          frameborder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowfullscreen
+                        />
+                      </div>
+                      <div v-if="r.description" class="text-[11px] text-muted leading-relaxed">
+                        {{ r.description }}
+                      </div>
                     </div>
-                  </a>
+
+                    <!-- General Resource Links -->
+                    <a
+                      v-else
+                      :href="r.url"
+                      target="_blank"
+                      class="p-4 rounded-xl border border-default bg-elevated/20 hover:border-primary/50 hover:shadow-md transition-all duration-300 block space-y-1.5 group"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span
+                          class="text-xs font-bold text-highlighted group-hover:text-primary transition-colors flex items-center gap-1.5"
+                        >
+                          <UIcon
+                            :name="
+                              r.type === 'VIDEO'
+                                ? 'i-lucide-play-circle'
+                                : 'i-lucide-external-link'
+                            "
+                          />
+                          {{ r.title }}
+                        </span>
+                        <UBadge
+                          :label="r.type"
+                          color="neutral"
+                          size="sm"
+                          variant="subtle"
+                        />
+                      </div>
+                      <div
+                        class="text-[11px] text-muted leading-relaxed line-clamp-2"
+                        v-if="r.description"
+                      >
+                        {{ r.description }}
+                      </div>
+                    </a>
+                  </template>
                 </div>
                 <div v-else class="text-center py-10 text-muted text-xs">
                   No resource links available for this lesson.
@@ -573,7 +682,7 @@ function parseMarkdown(md: string): string {
                           :class="[
                             selectedAnswers[q.id] === opt
                               ? 'border-primary bg-primary/5 font-semibold text-primary'
-                              : 'border-default hover:bg-neutral-50',
+                              : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800',
                             submittedQuizzes[q.id] && q.correctAnswer === opt
                               ? 'bg-success/5 border-success text-success ring-1 ring-success/30'
                               : '',
@@ -626,7 +735,7 @@ function parseMarkdown(md: string): string {
                         :class="
                           selectedAnswers[q.id] === q.correctAnswer
                             ? 'text-success-700 bg-success/5 border-success/20'
-                            : 'text-neutral-700'
+                            : 'text-stone-700 dark:text-stone-200'
                         "
                       >
                         <div class="font-bold mb-1 flex items-center gap-1">
@@ -668,9 +777,9 @@ function parseMarkdown(md: string): string {
         </div>
       </div>
 
-      <!-- Right Panel: AI Coach Chat Sidebar (4 cols) -->
+      <!-- Right Panel: AI Coach Chat Sidebar (4 cols, Hidden on Mobile) -->
       <div
-        class="lg:col-span-4 flex flex-col border border-default bg-elevated/30 rounded-2xl overflow-hidden h-[calc(100vh-var(--ui-header-height)-4rem)]"
+        class="hidden lg:flex lg:col-span-4 flex-col border border-default bg-elevated/30 rounded-2xl overflow-hidden h-[calc(100vh-var(--ui-header-height)-4rem)]"
       >
         <!-- AI Coach Header -->
         <div
@@ -728,14 +837,14 @@ function parseMarkdown(md: string): string {
                 {{ msg.role === "user" ? "You" : "Coach" }}
               </span>
               <div
-                class="px-3.5 py-2.5 rounded-2xl text-xs max-w-[85%] whitespace-pre-wrap leading-relaxed shadow-sm"
+                class="px-3.5 py-2.5 rounded-2xl text-xs max-w-[85%] leading-relaxed shadow-sm"
                 :class="
                   msg.role === 'user'
                     ? 'bg-primary text-white rounded-tr-none'
-                    : 'bg-default border border-default rounded-tl-none text-neutral-800'
+                    : 'bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-tl-none text-stone-800 dark:text-stone-100'
                 "
               >
-                {{ getTextFromMessage(msg) }}
+                <div class="prose dark:prose-invert text-xs max-w-none text-inherit" v-html="parseMarkdown(getTextFromMessage(msg))" />
               </div>
             </div>
           </div>
@@ -771,6 +880,121 @@ function parseMarkdown(md: string): string {
         </div>
       </div>
     </div>
+
+    <!-- Mobile Chat Floating Action Button (FAB) -->
+    <UButton
+      color="primary"
+      size="xl"
+      icon="i-lucide-sparkles"
+      class="lg:hidden fixed bottom-6 right-6 z-40 rounded-full shadow-xl shadow-amber-500/25 h-14 w-14 flex items-center justify-center font-bold"
+      @click="showMobileChat = true"
+    />
+
+    <!-- Mobile Chat Slide-over Drawer -->
+    <Transition name="fade">
+      <div v-if="showMobileChat" class="lg:hidden fixed inset-0 bg-black/65 backdrop-blur-sm z-50 flex justify-end" @click.self="showMobileChat = false">
+        <Transition name="slide-left" @after-leave="showMobileChat = false" appear>
+          <div v-if="showMobileChat" class="w-full max-w-md bg-stone-50 dark:bg-stone-950 h-full shadow-2xl border-l border-stone-200 dark:border-stone-800 flex flex-col">
+            <!-- Mobile Chat Header -->
+            <div class="px-4 py-3 border-b border-default bg-elevated/50 flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="rounded-full p-2 bg-primary/10 text-primary">
+                  <UIcon name="i-lucide-sparkles" class="h-4 w-4" />
+                </div>
+                <div>
+                  <div class="text-sm font-bold text-highlighted">AI Learning Coach</div>
+                  <div class="text-[10px] text-muted flex items-center gap-1 mt-0.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                    Tuned to current lesson context
+                  </div>
+                </div>
+              </div>
+              <UButton variant="ghost" color="neutral" icon="i-lucide-x" @click="showMobileChat = false" class="rounded-xl" />
+            </div>
+
+            <!-- Mobile Chat messages view -->
+            <div class="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4 bg-stone-50 dark:bg-stone-950">
+              <div
+                v-if="!chatInstance"
+                class="flex h-full items-center justify-center text-center text-muted text-xs"
+              >
+                Initializing coach session...
+              </div>
+              <div
+                v-else-if="!hasChatMessages"
+                class="flex h-full items-center justify-center text-center px-4 space-y-2 flex-col"
+              >
+                <UIcon
+                  name="i-lucide-bot"
+                  class="h-10 w-10 text-primary animate-pulse"
+                />
+                <div class="font-semibold text-xs text-highlighted">
+                  Your Coach is Ready!
+                </div>
+                <p class="text-[11px] leading-relaxed text-muted max-w-[200px]">
+                  Ask me details about "{{
+                    activeLesson?.title || roadmapQuery.data.value?.title
+                  }}". I can write code, explain details or test your knowledge!
+                </p>
+              </div>
+
+              <!-- Chat logs list -->
+              <div v-else class="space-y-4">
+                <div
+                  v-for="msg in filteredMessages"
+                  :key="msg.id"
+                  class="flex flex-col space-y-1.5"
+                  :class="msg.role === 'user' ? 'items-end' : 'items-start'"
+                >
+                  <span class="text-[10px] text-muted capitalize px-1">
+                    {{ msg.role === "user" ? "You" : "Coach" }}
+                  </span>
+                  <div
+                    class="px-3.5 py-2.5 rounded-2xl text-xs max-w-[85%] leading-relaxed shadow-sm"
+                    :class="
+                      msg.role === 'user'
+                        ? 'bg-primary text-white rounded-tr-none'
+                        : 'bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-tl-none text-stone-800 dark:text-stone-100'
+                    "
+                  >
+                    <div class="prose dark:prose-invert text-xs max-w-none text-inherit" v-html="parseMarkdown(getTextFromMessage(msg))" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mobile Chat message input prompt -->
+            <div class="p-4 border-t border-default bg-elevated/50 sticky bottom-0">
+              <form
+                @submit.prevent="handleChatSubmit"
+                class="flex gap-2 items-center"
+              >
+                <UInput
+                  v-model="chatInput"
+                  :placeholder="
+                    isChatLoading
+                      ? 'Coach is typing...'
+                      : 'Ask about this lesson...'
+                  "
+                  :disabled="isChatLoading || !chatInstance"
+                  autocomplete="off"
+                  class="flex-1 rounded-xl"
+                />
+                <UButton
+                  type="submit"
+                  color="primary"
+                  square
+                  icon="i-lucide-send"
+                  :loading="isChatLoading"
+                  :disabled="!chatInput.trim() || !chatInstance"
+                  class="rounded-xl shrink-0"
+                />
+              </form>
+            </div>
+          </div>
+        </Transition>
+      </div>
+    </Transition>
   </UContainer>
 </template>
 
@@ -869,5 +1093,24 @@ function parseMarkdown(md: string): string {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Mobile chat transition animations */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: transform 0.25s ease;
+}
+.slide-left-enter-from,
+.slide-left-leave-to {
+  transform: translateX(100%);
 }
 </style>

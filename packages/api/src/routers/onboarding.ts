@@ -178,6 +178,9 @@ export const onboardingRouter = {
             },
           },
         },
+        enrollments: {
+          where: { userId },
+        },
       },
       orderBy: { createdAt: "desc" },
     });

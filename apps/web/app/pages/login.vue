@@ -13,16 +13,16 @@ watch(() => route.query.signup, (val) => {
 
 watchEffect(() => {
   if (!session?.value.isPending && session?.value.data) {
-    navigateTo("/dashboard", { replace: true });
+    navigateTo("/analytics", { replace: true });
   }
 });
 
 useHead({
-  title: computed(() => showSignIn.value ? "Sign In — Madar" : "Create Your Account — Madar"),
+  title: computed(() => showSignIn.value ? "Sign In — Roadie" : "Create Your Account — Roadie"),
   meta: [
     {
       name: "description",
-      content: "Sign in to Madar to continue unlocking personal AI-generated roadmaps and chatting with your AI learning mentor.",
+      content: "Sign in to Roadie to continue unlocking personal AI-generated roadmaps and chatting with your AI learning mentor.",
     },
   ],
 });
@@ -39,8 +39,8 @@ useHead({
         
         <div>
           <NuxtLink to="/" class="flex items-center gap-2 font-extrabold text-2xl tracking-tight text-white group relative z-10">
-            <span>✨</span>
-            <span class="bg-gradient-to-r from-amber-400 to-amber-300 bg-clip-text text-transparent">Madar</span>
+            <span class="bg-gradient-to-r from-amber-400 to-amber-300 bg-clip-text text-transparent font-black">RD</span>
+            <span>AI</span>
           </NuxtLink>
         </div>
 
@@ -49,7 +49,7 @@ useHead({
             Unlocking the path to <span class="text-amber-400">mastering</span> any subject.
           </h2>
           <p class="text-stone-400 text-sm leading-relaxed">
-            Whether you are exploring software architectures, learning acoustic guitar, or mastering sourdough baking — Madar constructs personal roadmaps, aggregates educational media, and matches you with a tailored AI mentor.
+            Whether you are exploring software architectures, learning acoustic guitar, or mastering sourdough baking — Roadie constructs personal roadmaps, aggregates educational media, and matches you with a tailored AI mentor.
           </p>
           <div class="pt-4 border-t border-stone-800 flex items-center gap-3">
             <div class="h-8 w-8 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-xs">
@@ -60,7 +60,7 @@ useHead({
         </div>
 
         <div class="relative z-10 text-xs text-stone-500">
-          &copy; {{ new Date().getFullYear() }} Madar. Built for curious minds.
+          &copy; {{ new Date().getFullYear() }} Roadie. Built for curious minds.
         </div>
       </div>
 
@@ -72,7 +72,10 @@ useHead({
         </div>
         <div v-else-if="!session.data" class="w-full">
           <div class="text-center mb-6 lg:hidden">
-            <h1 class="text-2xl font-black text-stone-900 dark:text-white">Madar</h1>
+            <h1 class="text-2xl font-black text-stone-900 dark:text-white flex items-center justify-center gap-1.5">
+              <span class="bg-gradient-to-r from-amber-600 to-amber-500 dark:from-amber-400 dark:to-amber-300 bg-clip-text text-transparent">RD</span>
+              <span>AI</span>
+            </h1>
             <p class="text-xs text-stone-500 dark:text-stone-400 mt-1">Unlock your learning path</p>
           </div>
           
