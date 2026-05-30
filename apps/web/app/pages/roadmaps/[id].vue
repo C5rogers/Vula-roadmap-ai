@@ -24,8 +24,11 @@ const roadmapQuery = useQuery({
   enabled: computed(() => !!session.value?.data?.user && !!roadmapId),
 });
 
-// --- 2. Active Lesson State ---
+// --- 2. Active Lesson State & Tabs ---
 const activeLesson = ref<any>(null);
+const activeTab = ref<
+  "notes" | "flashcards" | "glossary" | "resources" | "quiz"
+>("notes");
 
 // Watch roadmap load to set default active lesson
 watch(
@@ -38,7 +41,50 @@ watch(
   { immediate: true },
 );
 
-// --- 3. Contextual AI Chat ---
+// Reset tab-specific states when switching lessons
+watch(activeLesson, () => {
+  activeTab.value = "notes";
+  currentCardIdx.value = 0;
+  isCardFlipped.value = false;
+  selectedAnswers.value = {};
+  submittedQuizzes.value = {};
+});
+
+// --- 3. Interactive Lesson Features States ---
+// Flashcards state
+const currentCardIdx = ref(0);
+const isCardFlipped = ref(false);
+const displayCardNum = computed(() => currentCardIdx.value + 1);
+
+function nextCard() {
+  if (!activeLesson.value?.flashcards) return;
+  if (currentCardIdx.value < activeLesson.value.flashcards.length - 1) {
+    currentCardIdx.value++;
+    isCardFlipped.value = false;
+  }
+}
+function prevCard() {
+  if (currentCardIdx.value > 0) {
+    currentCardIdx.value--;
+    isCardFlipped.value = false;
+  }
+}
+
+// Quiz interactive states
+const selectedAnswers = ref<Record<string, string>>({});
+const submittedQuizzes = ref<Record<string, boolean>>({});
+
+function handleSelectAnswer(questionId: string, option: string) {
+  if (submittedQuizzes.value[questionId]) return; // locked after submit
+  selectedAnswers.value[questionId] = option;
+}
+
+function handleSubmitQuestion(questionId: string) {
+  if (!selectedAnswers.value[questionId]) return;
+  submittedQuizzes.value[questionId] = true;
+}
+
+// --- 4. Contextual AI Chat ---
 const chatInput = ref("");
 const chatMessages = ref<UIMessage[]>([]);
 const aiApiUrl = `${useRuntimeConfig().public.serverUrl}/ai`;
@@ -243,11 +289,11 @@ const isChatLoading = computed(() => {
             </div>
           </div>
 
-          <!-- Active Lesson Content area (8 cols) -->
+          <!-- Active Lesson Content & Interactive area (8 cols) -->
           <div class="md:col-span-8">
             <div
               v-if="activeLesson"
-              class="border border-default rounded-2xl p-5 bg-elevated/10 space-y-5 shadow-sm min-h-[40vh]"
+              class="border border-default rounded-2xl p-5 bg-elevated/10 space-y-5 shadow-sm min-h-[50vh]"
             >
               <div>
                 <span
@@ -266,7 +312,7 @@ const isChatLoading = computed(() => {
               <!-- Lesson Overview Brief box -->
               <div
                 v-if="activeLesson.overview"
-                class="bg-elevated/40 border border-default rounded-xl p-3 text-xs leading-relaxed text-muted"
+                class="bg-elevated/40 border border-default rounded-xl p-3 text-xs leading-relaxed text-muted animate-fade-in"
               >
                 <span class="font-bold text-highlighted block mb-1"
                   >Objectives:</span
@@ -274,8 +320,36 @@ const isChatLoading = computed(() => {
                 {{ activeLesson.overview }}
               </div>
 
-              <!-- Lesson Detailed study notes (in markdown / text) -->
-              <div class="space-y-3">
+              <!-- Interactive Navigation Tabs -->
+              <div
+                class="border-b border-default flex gap-4 text-xs font-semibold overflow-x-auto"
+              >
+                <button
+                  v-for="tab in [
+                    'notes',
+                    'flashcards',
+                    'glossary',
+                    'resources',
+                    'quiz',
+                  ]"
+                  :key="tab"
+                  @click="activeTab = tab as any"
+                  class="pb-2.5 px-1 uppercase tracking-wider border-b-2 transition-all capitalize"
+                  :class="
+                    activeTab === tab
+                      ? 'border-primary text-primary font-bold'
+                      : 'border-transparent text-muted hover:text-highlighted'
+                  "
+                >
+                  {{ tab }}
+                </button>
+              </div>
+
+              <!-- Tab 1: Lesson Notes -->
+              <div
+                v-if="activeTab === 'notes'"
+                class="space-y-3 animate-fade-in"
+              >
                 <span
                   class="font-bold text-sm text-highlighted block pb-1 border-b border-default"
                   >Study Content</span
@@ -284,6 +358,286 @@ const isChatLoading = computed(() => {
                   class="prose dark:prose-invert text-xs leading-6 whitespace-pre-wrap max-w-none text-neutral-700 bg-default/40 p-4 rounded-xl border border-default/60"
                 >
                   {{ activeLesson.content }}
+                </div>
+              </div>
+
+              <!-- Tab 2: Flashcards (Flip cards) -->
+              <div
+                v-else-if="activeTab === 'flashcards'"
+                class="space-y-4 animate-fade-in"
+              >
+                <span
+                  class="font-bold text-sm text-highlighted block pb-1 border-b border-default"
+                  >Interactive Flashcards</span
+                >
+                <div
+                  v-if="activeLesson.flashcards?.length"
+                  class="flex flex-col items-center justify-center space-y-4 py-4"
+                >
+                  <!-- Flashcard layout -->
+                  <div
+                    @click="isCardFlipped = !isCardFlipped"
+                    class="w-full max-w-md h-48 rounded-2xl border cursor-pointer flex flex-col items-center justify-center p-6 text-center shadow-md transition-all duration-300 relative select-none"
+                    :class="
+                      isCardFlipped
+                        ? 'bg-primary/5 border-primary ring-1 ring-primary/30'
+                        : 'bg-elevated/40 border-default hover:border-neutral-400'
+                    "
+                  >
+                    <div
+                      class="text-[10px] text-muted uppercase tracking-widest font-semibold absolute top-4"
+                    >
+                      {{
+                        isCardFlipped
+                          ? "Answer (Click to flip)"
+                          : "Question (Click to flip)"
+                      }}
+                    </div>
+                    <div class="text-sm font-medium text-highlighted px-4">
+                      {{
+                        isCardFlipped
+                          ? activeLesson.flashcards[currentCardIdx].back
+                          : activeLesson.flashcards[currentCardIdx].front
+                      }}
+                    </div>
+                    <div
+                      class="text-[10px] text-primary font-semibold absolute bottom-4"
+                    >
+                      Card {{ displayCardNum }} of
+                      {{ activeLesson.flashcards.length }}
+                    </div>
+                  </div>
+
+                  <!-- Pagination Controls -->
+                  <div class="flex items-center gap-3">
+                    <UButton
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-lucide-chevron-left"
+                      :disabled="currentCardIdx === 0"
+                      @click="prevCard"
+                    />
+                    <span class="text-xs text-muted font-medium"
+                      >{{ displayCardNum }} /
+                      {{ activeLesson.flashcards.length }}</span
+                    >
+                    <UButton
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-lucide-chevron-right"
+                      :disabled="
+                        currentCardIdx === activeLesson.flashcards.length - 1
+                      "
+                      @click="nextCard"
+                    />
+                  </div>
+                </div>
+                <div v-else class="text-center py-10 text-muted text-xs">
+                  No flashcards generated for this lesson.
+                </div>
+              </div>
+
+              <!-- Tab 3: Glossary (Definitions list) -->
+              <div
+                v-else-if="activeTab === 'glossary'"
+                class="space-y-4 animate-fade-in"
+              >
+                <span
+                  class="font-bold text-sm text-highlighted block pb-1 border-b border-default"
+                  >Key Glossary & Concepts</span
+                >
+                <div
+                  v-if="activeLesson.glossaries?.length"
+                  class="grid sm:grid-cols-2 gap-3.5"
+                >
+                  <div
+                    v-for="g in activeLesson.glossaries"
+                    :key="g.id"
+                    class="p-3.5 rounded-xl border border-default bg-elevated/30 space-y-1.5 shadow-sm"
+                  >
+                    <div
+                      class="text-xs font-bold text-primary flex items-center gap-1"
+                    >
+                      <UIcon name="i-lucide-help-circle" />
+                      {{ g.term }}
+                    </div>
+                    <div class="text-xs text-muted leading-relaxed">
+                      {{ g.definition }}
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-center py-10 text-muted text-xs">
+                  No glossary terms generated for this lesson.
+                </div>
+              </div>
+
+              <!-- Tab 4: Resources (Links) -->
+              <div
+                v-else-if="activeTab === 'resources'"
+                class="space-y-4 animate-fade-in"
+              >
+                <span
+                  class="font-bold text-sm text-highlighted block pb-1 border-b border-default"
+                  >Curated Documentation & Videos</span
+                >
+                <div
+                  v-if="activeLesson.resources?.length"
+                  class="grid sm:grid-cols-2 gap-3.5"
+                >
+                  <a
+                    v-for="r in activeLesson.resources"
+                    :key="r.id"
+                    :href="r.url"
+                    target="_blank"
+                    class="p-4 rounded-xl border border-default bg-elevated/20 hover:border-primary/50 hover:shadow-md transition-all duration-300 block space-y-1.5 group"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <span
+                        class="text-xs font-bold text-highlighted group-hover:text-primary transition-colors flex items-center gap-1.5"
+                      >
+                        <UIcon
+                          :name="
+                            r.type === 'VIDEO'
+                              ? 'i-lucide-play-circle'
+                              : 'i-lucide-external-link'
+                          "
+                        />
+                        {{ r.title }}
+                      </span>
+                      <UBadge
+                        :label="r.type"
+                        color="neutral"
+                        size="sm"
+                        variant="subtle"
+                      />
+                    </div>
+                    <div
+                      class="text-[11px] text-muted leading-relaxed line-clamp-2"
+                      v-if="r.description"
+                    >
+                      {{ r.description }}
+                    </div>
+                  </a>
+                </div>
+                <div v-else class="text-center py-10 text-muted text-xs">
+                  No resource links available for this lesson.
+                </div>
+              </div>
+
+              <!-- Tab 5: Quizzes (Interactive question verification) -->
+              <div
+                v-else-if="activeTab === 'quiz'"
+                class="space-y-4 animate-fade-in"
+              >
+                <div v-if="activeLesson.quizzes?.length">
+                  <div
+                    v-for="quiz in activeLesson.quizzes"
+                    :key="quiz.id"
+                    class="space-y-5"
+                  >
+                    <span
+                      class="font-bold text-sm text-highlighted block pb-1 border-b border-default"
+                      >{{ quiz.title }}</span
+                    >
+
+                    <div
+                      v-for="(q, qIdx) in quiz.questions"
+                      :key="q.id"
+                      class="p-4 rounded-xl border border-default bg-elevated/20 space-y-4 shadow-sm"
+                    >
+                      <div
+                        class="text-xs font-bold text-highlighted flex gap-1.5 items-start leading-relaxed"
+                      >
+                        <UBadge
+                          :label="`Q${qIdx + 1}`"
+                          color="primary"
+                          size="sm"
+                          class="rounded-lg shrink-0"
+                        />
+                        <span>{{ q.questionText }}</span>
+                      </div>
+
+                      <!-- Options List -->
+                      <div class="space-y-2">
+                        <button
+                          v-for="opt in q.options"
+                          :key="opt"
+                          @click="handleSelectAnswer(q.id, opt)"
+                          class="w-full text-left p-3 rounded-lg border text-xs leading-relaxed transition-all duration-200 flex items-center justify-between gap-3"
+                          :class="[
+                            selectedAnswers[q.id] === opt
+                              ? 'border-primary bg-primary/5 font-semibold text-primary'
+                              : 'border-default hover:bg-neutral-50',
+                            submittedQuizzes[q.id] && q.correctAnswer === opt
+                              ? 'bg-success/5 border-success text-success ring-1 ring-success/30'
+                              : '',
+                            submittedQuizzes[q.id] &&
+                            selectedAnswers[q.id] === opt &&
+                            q.correctAnswer !== opt
+                              ? 'bg-error/5 border-error text-error'
+                              : '',
+                          ]"
+                        >
+                          <span>{{ opt }}</span>
+                          <UIcon
+                            v-if="
+                              submittedQuizzes[q.id] && q.correctAnswer === opt
+                            "
+                            name="i-lucide-check-circle"
+                            class="h-4 w-4 text-success shrink-0"
+                          />
+                          <UIcon
+                            v-else-if="
+                              submittedQuizzes[q.id] &&
+                              selectedAnswers[q.id] === opt &&
+                              q.correctAnswer !== opt
+                            "
+                            name="i-lucide-x-circle"
+                            class="h-4 w-4 text-error shrink-0"
+                          />
+                        </button>
+                      </div>
+
+                      <!-- Submit Question button -->
+                      <div
+                        class="flex justify-end pt-1"
+                        v-if="!submittedQuizzes[q.id]"
+                      >
+                        <UButton
+                          color="primary"
+                          size="xs"
+                          :disabled="!selectedAnswers[q.id]"
+                          @click="handleSubmitQuestion(q.id)"
+                        >
+                          Submit Answer
+                        </UButton>
+                      </div>
+
+                      <!-- Explanation result box -->
+                      <div
+                        v-if="submittedQuizzes[q.id]"
+                        class="p-3 bg-default border border-default rounded-lg text-[11px] leading-relaxed animate-fade-in"
+                        :class="
+                          selectedAnswers[q.id] === q.correctAnswer
+                            ? 'text-success-700 bg-success/5 border-success/20'
+                            : 'text-neutral-700'
+                        "
+                      >
+                        <div class="font-bold mb-1 flex items-center gap-1">
+                          <UIcon name="i-lucide-info" />
+                          {{
+                            selectedAnswers[q.id] === q.correctAnswer
+                              ? "Correct!"
+                              : "Incorrect Answer"
+                          }}
+                        </div>
+                        <div v-if="q.explanation">{{ q.explanation }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="text-center py-10 text-muted text-xs">
+                  No instant quiz generated for this lesson.
                 </div>
               </div>
             </div>

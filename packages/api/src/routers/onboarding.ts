@@ -14,6 +14,29 @@ const onboardingInputSchema = z.object({
   additionalNotes: z.string().optional(),
 });
 
+// Reuse schemas for nested Quizzes
+const questionSchema = z.object({
+  questionText: z
+    .string()
+    .describe("The text of the quiz question, e.g. 'What is React Hooks?'"),
+  options: z
+    .array(z.string())
+    .describe(
+      "List of multiple choice options, e.g. ['A function', 'A component', 'A state manager', 'None of the above']",
+    ),
+  correctAnswer: z.string().describe("The exact text of the correct option"),
+  explanation: z
+    .string()
+    .describe("A helpful explanation of why this answer is correct"),
+});
+
+const quizSchema = z.object({
+  title: z.string().describe("Title of the quiz, e.g. 'useState Basics Quiz'"),
+  questions: z
+    .array(questionSchema)
+    .describe("List of questions for this quiz"),
+});
+
 const roadmapObjectSchema = z.object({
   title: z
     .string()
@@ -42,6 +65,9 @@ const roadmapObjectSchema = z.object({
     .describe(
       "A highly motivating and personalized prompt tailored to the user's specific learning style preference (e.g. video, document, mixed) and experience level, guiding them on how best to tackle this roadmap and learn efficiently.",
     ),
+  finalQuiz: quizSchema.describe(
+    "An overall course final quiz for the roadmap. It must contain exactly 5 comprehensive questions covering the entire roadmap topics.",
+  ),
   chapters: z.array(
     z.object({
       title: z
@@ -58,6 +84,9 @@ const roadmapObjectSchema = z.object({
         .number()
         .int()
         .describe("The sequential order of the chapter, starting from 1"),
+      quiz: quizSchema.describe(
+        "A chapter-level assessment quiz. It must contain exactly 3 questions testing the chapter's objectives.",
+      ),
       lessons: z.array(
         z.object({
           title: z
@@ -77,6 +106,51 @@ const roadmapObjectSchema = z.object({
             .describe(
               "The sequential order of the lesson within the chapter, starting from 1",
             ),
+          resources: z
+            .array(
+              z.object({
+                title: z.string().describe("Title of the learning resource"),
+                url: z
+                  .string()
+                  .describe("Actual or highly plausible URL of the resource"),
+                type: z
+                  .string()
+                  .describe(
+                    "The resource type, e.g., 'DOCUMENT', 'VIDEO', 'ARTICLE'",
+                  ),
+                description: z.string().optional(),
+              }),
+            )
+            .describe(
+              "A list of 1-2 curated learning resources for this lesson",
+            ),
+          flashcards: z
+            .array(
+              z.object({
+                front: z.string().describe("Front/Question of the flashcard"),
+                back: z.string().describe("Back/Answer of the flashcard"),
+              }),
+            )
+            .describe(
+              "A list of 2-4 flashcards for active recall study of the lesson's key concepts",
+            ),
+          glossaries: z
+            .array(
+              z.object({
+                term: z
+                  .string()
+                  .describe("Key term/concept introduced in the lesson"),
+                definition: z
+                  .string()
+                  .describe("Simple and clear definition of the term"),
+              }),
+            )
+            .describe(
+              "A list of 2-4 key glossary terms and definitions introduced in this lesson",
+            ),
+          quiz: quizSchema.describe(
+            "An instant lesson-level quiz. It must contain exactly 2 quick questions to test active understanding of this lesson's content.",
+          ),
         }),
       ),
     }),
@@ -120,7 +194,27 @@ export const onboardingRouter = {
             include: {
               lessons: {
                 orderBy: { order: "asc" },
+                include: {
+                  resources: true,
+                  flashcards: true,
+                  glossaries: true,
+                  quizzes: {
+                    include: {
+                      questions: true,
+                    },
+                  },
+                },
               },
+              quizzes: {
+                include: {
+                  questions: true,
+                },
+              },
+            },
+          },
+          quizzes: {
+            include: {
+              questions: true,
             },
           },
         },
@@ -164,9 +258,20 @@ Design a highly custom roadmap for a student with the following onboarding prefe
 - Preferred Duration: ${input.preferredDuration}
 ${input.additionalNotes ? `- Additional Notes: ${input.additionalNotes}` : ""}
 
-Please generate a cohesive Roadmap. The Roadmap must contain between 2 to 6 Chapters (depending on duration and goals). Each Chapter must contain between 2 to 5 Lessons.
-For each Lesson, generate an 'overview' (a brief outline of what is covered) and 'content' (detailed, markdown-formatted study notes, concepts, practical hands-on exercises, or guides, customized to their experience level and learning style).
-Also generate a highly motivating 'promptToLearn' message custom tailored to their experience level and preferred learning style.
+Please generate a cohesive Roadmap. The Roadmap must contain between 2 to 4 Chapters (depending on duration and goals). Each Chapter must contain between 2 to 4 Lessons.
+For each Lesson:
+1. Generate an 'overview' (a brief outline of what is covered) and 'content' (detailed, markdown-formatted study notes, concepts, practical hands-on exercises, or guides, customized to their experience level and learning style).
+2. Curate 1 to 2 learning 'resources' (with realistic titles, URLs, and types matching their style like VIDEO or ARTICLE).
+3. Design 2 to 4 active-recall 'flashcards' (with front questions and back answers) for quick study.
+4. Extract 2 to 4 key 'glossaries' (terms and definitions).
+5. Add an instant lesson-level 'quiz' (with exactly 2 questions, 4 options each, correct answer text, and detailed explanation).
+
+For each Chapter:
+1. Design a chapter-level assessment 'quiz' (with exactly 3 questions testing chapter-wide understanding).
+
+For the overall Roadmap:
+1. Design an overall course final 'quiz' (with exactly 5 comprehensive questions covering the entire roadmap).
+
 Return the result structured according to the schema.`;
 
       let aiRoadmap;
@@ -200,6 +305,24 @@ Return the result structured according to the schema.`;
           summary: aiRoadmap.summary,
           targetGoal: aiRoadmap.targetGoal,
           learningStrategy: aiRoadmap.learningStrategy,
+          quizzes: aiRoadmap.finalQuiz
+            ? {
+                create: [
+                  {
+                    title: aiRoadmap.finalQuiz.title,
+                    type: "FINAL",
+                    questions: {
+                      create: aiRoadmap.finalQuiz.questions.map((q) => ({
+                        questionText: q.questionText,
+                        options: q.options,
+                        correctAnswer: q.correctAnswer,
+                        explanation: q.explanation,
+                      })),
+                    },
+                  },
+                ],
+              }
+            : undefined,
           chapters: {
             create: aiRoadmap.chapters.map((chapter) => ({
               title: chapter.title,
@@ -207,12 +330,71 @@ Return the result structured according to the schema.`;
               overview: chapter.overview,
               summary: chapter.summary,
               order: chapter.order,
+              quizzes: chapter.quiz
+                ? {
+                    create: [
+                      {
+                        title: chapter.quiz.title,
+                        type: "CHAPTER",
+                        questions: {
+                          create: chapter.quiz.questions.map((q) => ({
+                            questionText: q.questionText,
+                            options: q.options,
+                            correctAnswer: q.correctAnswer,
+                            explanation: q.explanation,
+                          })),
+                        },
+                      },
+                    ],
+                  }
+                : undefined,
               lessons: {
                 create: chapter.lessons.map((lesson) => ({
                   title: lesson.title,
                   overview: lesson.overview,
                   content: lesson.content,
                   order: lesson.order,
+                  resources: {
+                    create:
+                      lesson.resources?.map((r) => ({
+                        title: r.title,
+                        url: r.url,
+                        type: r.type,
+                        description: r.description,
+                      })) || [],
+                  },
+                  flashcards: {
+                    create:
+                      lesson.flashcards?.map((f) => ({
+                        front: f.front,
+                        back: f.back,
+                      })) || [],
+                  },
+                  glossaries: {
+                    create:
+                      lesson.glossaries?.map((g) => ({
+                        term: g.term,
+                        definition: g.definition,
+                      })) || [],
+                  },
+                  quizzes: lesson.quiz
+                    ? {
+                        create: [
+                          {
+                            title: lesson.quiz.title,
+                            type: "INSTANT",
+                            questions: {
+                              create: lesson.quiz.questions.map((q) => ({
+                                questionText: q.questionText,
+                                options: q.options,
+                                correctAnswer: q.correctAnswer,
+                                explanation: q.explanation,
+                              })),
+                            },
+                          },
+                        ],
+                      }
+                    : undefined,
                 })),
               },
             })),
