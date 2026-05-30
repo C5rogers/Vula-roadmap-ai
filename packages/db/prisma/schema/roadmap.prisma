@@ -72,6 +72,7 @@ model Lesson {
   chapterId String
   chapter   Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   title     String
+  type      String  @default("TEXT") // TEXT, VIDEO, AUDIO, PDF
   overview  String? @db.Text
   content   String? @db.Text // Can be text, markdown document, or transcripts
   order     Int // Lesson order (1, 2, 3...)
@@ -163,13 +164,20 @@ model QuizAttempt {
 }
 
 model LessonProgress {
-  id          String    @id @default(uuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lessonId    String
-  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  isCompleted Boolean   @default(false)
-  completedAt DateTime?
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId       String
+  lesson         Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  isCompleted    Boolean   @default(false)
+  completedAt    DateTime?
+  videoProgress  Float? // progress in seconds
+  audioProgress  Float? // progress in seconds
+  pdfCurrentPage Int? // current page number
+  pdfTotalPages  Int? // total pages of the PDF
+  scrollPercent  Float? // scroll/read progress percentage
+  timeSpent      Int       @default(0) // total time spent in seconds
+  lastStudiedAt  DateTime  @default(now()) @updatedAt
 
   @@unique([userId, lessonId])
   @@map("lesson_progress")
