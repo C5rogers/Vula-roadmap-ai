@@ -267,11 +267,11 @@ export const onboardingRouter = {
         update: {
           isCompleted: isNowCompleted,
           completedAt: completedAtValue,
-          videoProgress: input.videoProgress ?? undefined,
-          audioProgress: input.audioProgress ?? undefined,
-          pdfCurrentPage: input.pdfCurrentPage ?? undefined,
-          pdfTotalPages: input.pdfTotalPages ?? undefined,
-          scrollPercent: input.scrollPercent ?? undefined,
+          videoProgress: input.videoProgress === undefined ? undefined : input.videoProgress,
+          audioProgress: input.audioProgress === undefined ? undefined : input.audioProgress,
+          pdfCurrentPage: input.pdfCurrentPage === undefined ? undefined : input.pdfCurrentPage,
+          pdfTotalPages: input.pdfTotalPages === undefined ? undefined : input.pdfTotalPages,
+          scrollPercent: input.scrollPercent === undefined ? undefined : input.scrollPercent,
           timeSpent: {
             increment: input.timeSpent,
           },
