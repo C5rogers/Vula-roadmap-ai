@@ -50,6 +50,96 @@ const activeTab = ref<
 
 const openChapters = ref<Record<string, boolean>>({});
 
+const viewMode = ref<"curriculum" | "schedule">("curriculum");
+
+const scheduledDays = computed(() => {
+  const roadmap = roadmapQuery.data.value;
+  if (!roadmap?.chapters) return [];
+
+  // 1. Collect all lessons with a scheduled date
+  const lessonsList: any[] = [];
+  for (const chapter of roadmap.chapters) {
+    if (chapter.lessons) {
+      for (const lesson of chapter.lessons) {
+        if (lesson.scheduledDate) {
+          lessonsList.push({
+            ...lesson,
+            chapterTitle: chapter.title,
+            chapterId: chapter.id,
+          });
+        }
+      }
+    }
+  }
+
+  // 2. Sort lessons by scheduled date
+  lessonsList.sort(
+    (a, b) =>
+      new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime(),
+  );
+
+  // 3. Group by date string (YYYY-MM-DD)
+  const groups: Record<
+    string,
+    {
+      date: Date;
+      dateStr: string;
+      lessons: any[];
+      totalLessons: number;
+      completedLessons: number;
+      percent: number;
+      timeSpentSeconds: number;
+    }
+  > = {};
+  for (const lesson of lessonsList) {
+    const d = new Date(lesson.scheduledDate);
+    const dateStr = d.toISOString().split("T")[0] ?? "";
+    if (dateStr) {
+      if (!groups[dateStr]) {
+        groups[dateStr] = {
+          date: d,
+          dateStr,
+          lessons: [],
+          totalLessons: 0,
+          completedLessons: 0,
+          percent: 0,
+          timeSpentSeconds: 0,
+        };
+      }
+      const group = groups[dateStr];
+      if (group) {
+        group.lessons.push(lesson);
+        group.totalLessons++;
+        const isCompleted = lesson.progress?.[0]?.isCompleted ?? false;
+        if (isCompleted) {
+          group.completedLessons++;
+        }
+        group.timeSpentSeconds += lesson.progress?.[0]?.timeSpent ?? 0;
+      }
+    }
+  }
+
+  // 4. Convert to sorted array
+  return Object.values(groups)
+    .map((g) => {
+      g.percent =
+        g.totalLessons > 0
+          ? Math.round((g.completedLessons / g.totalLessons) * 100)
+          : 0;
+      return g;
+    })
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+});
+
+function handleStartLesson(lesson: any) {
+  activeLesson.value = lesson;
+  // Make sure the chapter is open
+  if (lesson.chapterId) {
+    openChapters.value[lesson.chapterId] = true;
+  }
+  viewMode.value = "curriculum";
+}
+
 function toggleChapter(chapterId: string) {
   openChapters.value[chapterId] = !openChapters.value[chapterId];
 }
@@ -611,8 +701,218 @@ function getYouTubeEmbedUrl(url: string): string {
           </p>
         </div>
 
+        <!-- Main Tabs: Curriculum vs Schedule -->
+        <div
+          class="flex border-b border-default mb-4 gap-4 text-sm font-semibold pt-2"
+        >
+          <button
+            @click="viewMode = 'curriculum'"
+            class="pb-2 px-1 uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5"
+            :class="
+              viewMode === 'curriculum'
+                ? 'border-primary text-primary font-bold'
+                : 'border-transparent text-muted hover:text-highlighted'
+            "
+          >
+            <UIcon name="i-lucide-book" />
+            Curriculum
+          </button>
+          <button
+            @click="viewMode = 'schedule'"
+            class="pb-2 px-1 uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5"
+            :class="
+              viewMode === 'schedule'
+                ? 'border-primary text-primary font-bold'
+                : 'border-transparent text-muted hover:text-highlighted'
+            "
+          >
+            <UIcon name="i-lucide-calendar-clock" />
+            Schedule
+          </button>
+        </div>
+
+        <!-- Schedule View Tab Content -->
+        <div
+          v-if="viewMode === 'schedule'"
+          class="space-y-6 py-2 animate-fade-in text-left"
+        >
+          <!-- Empty State if no scheduled days -->
+          <div
+            v-if="scheduledDays.length === 0"
+            class="flex flex-col items-center justify-center text-center p-10 border border-default border-dashed rounded-2xl min-h-[40vh]"
+          >
+            <UIcon
+              name="i-lucide-calendar-x"
+              class="h-10 w-10 text-muted mb-2"
+            />
+            <div class="font-semibold text-highlighted text-sm">
+              No Schedule Available
+            </div>
+            <p class="text-xs text-muted mt-1 max-w-sm">
+              We couldn't find any scheduled lessons for this roadmap. Try
+              generating a new roadmap to schedule it!
+            </p>
+          </div>
+
+          <!-- Timeline Container -->
+          <div
+            v-else
+            class="relative border-l border-default pl-6 ml-4 space-y-8"
+          >
+            <div
+              v-for="day in scheduledDays"
+              :key="day.dateStr"
+              class="relative"
+            >
+              <!-- Timeline node point -->
+              <div
+                class="absolute -left-[31px] top-1.5 h-4.5 w-4.5 rounded-full border-2 border-default flex items-center justify-center"
+                :class="
+                  day.percent === 100
+                    ? 'bg-green-500 border-green-500 text-white'
+                    : 'bg-background'
+                "
+              >
+                <UIcon
+                  v-if="day.percent === 100"
+                  name="i-lucide-check"
+                  class="h-2.5 w-2.5"
+                />
+                <div v-else class="h-1.5 w-1.5 rounded-full bg-primary" />
+              </div>
+
+              <!-- Day Title and Stats Header -->
+              <div
+                class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3"
+              >
+                <div>
+                  <h3 class="text-base font-extrabold text-highlighted">
+                    {{
+                      new Date(day.date).toLocaleDateString(undefined, {
+                        weekday: "long",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })
+                    }}
+                  </h3>
+                  <p
+                    class="text-[11px] text-muted font-medium uppercase tracking-wider"
+                  >
+                    Roadmap Daily Progress
+                  </p>
+                </div>
+
+                <!-- Aggregated Progress & Time Spent details -->
+                <div class="flex items-center gap-3">
+                  <UBadge
+                    :label="`${day.completedLessons}/${day.totalLessons} Lessons`"
+                    :color="day.percent === 100 ? 'success' : 'primary'"
+                    size="sm"
+                    variant="soft"
+                    class="rounded-lg"
+                  />
+                  <UBadge
+                    v-if="day.timeSpentSeconds > 0"
+                    :label="`${Math.round(day.timeSpentSeconds / 60)}m studied`"
+                    color="neutral"
+                    size="sm"
+                    variant="subtle"
+                    icon="i-lucide-clock"
+                    class="rounded-lg"
+                  />
+                  <!-- Day progress bar -->
+                  <div
+                    class="w-24 bg-default rounded-full h-1.5 overflow-hidden hidden sm:block"
+                  >
+                    <div
+                      class="h-full rounded-full transition-all duration-500"
+                      :class="
+                        day.percent === 100 ? 'bg-green-500' : 'bg-primary'
+                      "
+                      :style="{ width: `${day.percent}%` }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Lessons Scheduled on this Day Grid -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div
+                  v-for="lesson in day.lessons"
+                  :key="lesson.id"
+                  class="p-4 rounded-xl border border-default bg-elevated/10 shadow-sm flex flex-col justify-between hover:shadow-md transition-all duration-300"
+                >
+                  <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                      <span
+                        class="text-[10px] text-primary uppercase font-bold tracking-wider"
+                      >
+                        {{ lesson.chapterTitle }}
+                      </span>
+                      <UIcon
+                        :name="
+                          lesson.type === 'VIDEO'
+                            ? 'i-lucide-video'
+                            : lesson.type === 'AUDIO'
+                              ? 'i-lucide-headphones'
+                              : lesson.type === 'PDF'
+                                ? 'i-lucide-file'
+                                : 'i-lucide-file-text'
+                        "
+                        class="h-4 w-4 text-muted"
+                      />
+                    </div>
+                    <h4 class="text-sm font-bold text-highlighted leading-snug">
+                      {{ lesson.title }}
+                    </h4>
+                  </div>
+
+                  <div
+                    class="flex items-center justify-between pt-4 mt-2 border-t border-default"
+                  >
+                    <div class="flex items-center gap-1.5">
+                      <UIcon
+                        :name="
+                          lesson.progress?.[0]?.isCompleted
+                            ? 'i-lucide-check-circle-2'
+                            : 'i-lucide-circle'
+                        "
+                        class="h-4 w-4"
+                        :class="
+                          lesson.progress?.[0]?.isCompleted
+                            ? 'text-green-500'
+                            : 'text-muted'
+                        "
+                      />
+                      <span class="text-xs text-muted">
+                        {{
+                          lesson.progress?.[0]?.isCompleted
+                            ? "Completed"
+                            : "Pending Study"
+                        }}
+                      </span>
+                    </div>
+
+                    <UButton
+                      color="primary"
+                      size="xs"
+                      variant="subtle"
+                      icon="i-lucide-book-open"
+                      class="rounded-lg"
+                      @click="handleStartLesson(lesson)"
+                    >
+                      Study Now
+                    </UButton>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Layout: Double Column inside the detail page (Syllabus vs Lesson view) -->
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
+        <div v-else class="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
           <!-- Mobile Syllabus Accordion (Hidden on Desktop) -->
           <div
             class="lg:hidden border border-default rounded-xl bg-elevated/20 overflow-hidden"

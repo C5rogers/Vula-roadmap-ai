@@ -8,6 +8,8 @@ model UserProfile {
   weeklyCommitment  Int? // in hours
   preferredDuration String? // e.g. "4 weeks"
   additionalNotes   String?
+  availabilityDays  Json? // Days of the week user is available, e.g., ["Monday", "Wednesday"]
+  availabilityHours Int? // Available hours per day
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -68,14 +70,15 @@ model Chapter {
 }
 
 model Lesson {
-  id        String  @id @default(uuid())
-  chapterId String
-  chapter   Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  title     String
-  type      String  @default("TEXT") // TEXT, VIDEO, AUDIO, PDF
-  overview  String? @db.Text
-  content   String? @db.Text // Can be text, markdown document, or transcripts
-  order     Int // Lesson order (1, 2, 3...)
+  id            String    @id @default(uuid())
+  chapterId     String
+  chapter       Chapter   @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title         String
+  type          String    @default("TEXT") // TEXT, VIDEO, AUDIO, PDF
+  overview      String?   @db.Text
+  content       String?   @db.Text // Can be text, markdown document, or transcripts
+  order         Int // Lesson order (1, 2, 3...)
+  scheduledDate DateTime?
 
   resources  Resource[]
   flashcards Flashcard[]
