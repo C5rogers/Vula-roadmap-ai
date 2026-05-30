@@ -56,19 +56,19 @@ const sectors = [
 // Testimonials (human-centric & warm)
 const testimonials = [
   {
-    quote: "I wanted to learn how to bake sourdough, but books were too dense. Madar built a day-by-day roadmap tailored to my oven and work schedule, and the AI coach troubleshot my flat loaf in real-time.",
+    quote: "I wanted to learn how to bake sourdough, but books were too dense. Roadie built a day-by-day roadmap tailored to my oven and work schedule, and the AI coach troubleshot my flat loaf in real-time.",
     author: "Elena R.",
     role: "Sourdough Baker & Designer",
     avatar: "E",
   },
   {
-    quote: "As a software engineer branching into hardware, I needed a highly customized curriculum. Madar saved me months of aimless searching by mapping out electronics basics with perfect references.",
+    quote: "As a software engineer branching into hardware, I needed a highly customized curriculum. Roadie saved me months of aimless searching by mapping out electronics basics with perfect references.",
     author: "Marcus K.",
     role: "Full-Stack Developer",
     avatar: "M",
   },
   {
-    quote: "Learning conversational French felt impossible until Madar broke down daily practice milestones. The custom quizzes keep me honest, and the mentor is incredibly encouraging.",
+    quote: "Learning conversational French felt impossible until Roadie broke down daily practice milestones. The custom quizzes keep me honest, and the mentor is incredibly encouraging.",
     author: "Amara O.",
     role: "Freelance Copywriter",
     avatar: "A",
@@ -97,37 +97,20 @@ const testimonials = [
       </h1>
       
       <p class="mt-6 text-lg sm:text-xl text-stone-600 dark:text-stone-300 max-w-2xl mx-auto font-medium">
-        Tell Madar what you want to master. Our adaptive AI designs a complete personalized curriculum, aggregates resources, and coaches you step-by-step from zero to confidence.
+        Tell Roadie what you want to master. Our adaptive AI designs a complete personalized curriculum, aggregates resources, and coaches you step-by-step from zero to confidence.
       </p>
 
       <div class="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-        <template v-if="session.isPending">
-          <UButton size="xl" disabled icon="i-lucide-loader-2" class="animate-spin min-w-[160px]">
-            Loading...
-          </UButton>
-        </template>
-        <template v-else>
-          <UButton
-            v-if="session.data"
-            to="/dashboard"
-            size="xl"
-            icon="i-lucide-arrow-right"
-            trailing
-            class="font-semibold shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 transition-all duration-300 rounded-xl"
-          >
-            Go to Dashboard
-          </UButton>
-          <UButton
-            v-else
-            to="/login"
-            size="xl"
-            icon="i-lucide-sparkles"
-            class="font-semibold shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 transition-all duration-300 rounded-xl"
-          >
-            Get Started — Free
-          </UButton>
-        </template>
-        <a href="#how-it-works" class="text-sm font-semibold text-stone-600 dark:text-stone-300 hover:text-amber-600 dark:hover:text-amber-500 transition-colors flex items-center gap-1 py-2 px-4 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-900/60">
+        <UButton
+          :to="session.data ? '/dashboard' : '/login'"
+          size="xl"
+          :icon="session.data ? 'i-lucide-arrow-right' : 'i-lucide-sparkles'"
+          :trailing="!!session.data"
+          class="font-semibold shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 transition-all duration-300 rounded-xl"
+        >
+          {{ session.data ? 'Go to Dashboard' : 'Get Started — Free' }}
+        </UButton>
+        <a href="#about" class="text-sm font-semibold text-stone-600 dark:text-stone-300 hover:text-amber-600 dark:hover:text-amber-500 transition-colors flex items-center gap-1 py-2 px-4 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-900/60">
           How it works
           <UIcon name="i-lucide-arrow-down" class="text-xs" />
         </a>
@@ -143,7 +126,7 @@ const testimonials = [
                 <span class="w-3 h-3 rounded-full bg-stone-300 dark:bg-stone-800"></span>
                 <span class="w-3 h-3 rounded-full bg-stone-300 dark:bg-stone-800"></span>
               </div>
-              <div class="text-xs font-semibold text-stone-500 dark:text-stone-400">Madar Roadmap Assistant</div>
+              <div class="text-xs font-semibold text-stone-500 dark:text-stone-400">Roadie Roadmap Assistant</div>
               <div class="w-12"></div>
             </div>
           
@@ -200,7 +183,7 @@ const testimonials = [
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-3xl mx-auto">
           <h2 class="text-3xl sm:text-4xl font-extrabold text-stone-900 dark:text-white tracking-tight">
-            How Madar Unlocks Your Potential
+            How Roadie Unlocks Your Potential
           </h2>
           <p class="mt-4 text-stone-600 dark:text-stone-300 text-lg">
             No rigid templates, no generic templates. A dynamic, adaptive loop designed specifically for the way humans actually acquire knowledge.
@@ -215,7 +198,7 @@ const testimonials = [
             </div>
             <h3 class="text-lg font-bold text-stone-900 dark:text-stone-100 mb-3">Describe Your Goal</h3>
             <p class="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-              Tell Madar what you want to learn in plain text. Mention your current context, constraints, and timeline. No domain is too niche, technical, or unconventional.
+              Tell Roadie what you want to learn in plain text. Mention your current context, constraints, and timeline. No domain is too niche, technical, or unconventional.
             </p>
           </div>
 
@@ -252,7 +235,7 @@ const testimonials = [
             Designed for Any Domain
           </h2>
           <p class="mt-4 text-stone-600 dark:text-stone-300 text-lg">
-            Human curiosity shouldn't be limited to coding. Madar understands and formulates structured roadmaps for tech, crafts, arts, languages, and more.
+            Human curiosity shouldn't be limited to coding. Roadie understands and formulates structured roadmaps for tech, crafts, arts, languages, and more.
           </p>
         </div>
 
@@ -375,35 +358,18 @@ const testimonials = [
           Ready to open your next chapter?
         </h2>
         <p class="mt-4 text-stone-600 dark:text-stone-300 text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
-          Unlock potential, shape pathways, and structure your learning. Describe your goal, and let Madar prepare your journey.
+          Unlock potential, shape pathways, and structure your learning. Describe your goal, and let Roadie prepare your journey.
         </p>
         <div class="mt-8">
-          <template v-if="session.isPending">
-            <UButton size="xl" disabled icon="i-lucide-loader-2" class="animate-spin min-w-[160px]">
-              Loading...
-            </UButton>
-          </template>
-          <template v-else>
-            <UButton
-              v-if="session.data"
-              to="/dashboard"
-              size="xl"
-              icon="i-lucide-arrow-right"
-              trailing
-              class="font-semibold shadow-xl shadow-amber-500/10 hover:shadow-amber-500/20 transition-all duration-300 rounded-xl px-8"
-            >
-              Go to Dashboard
-            </UButton>
-            <UButton
-              v-else
-              to="/login"
-              size="xl"
-              icon="i-lucide-sparkles"
-              class="font-semibold shadow-xl shadow-amber-500/10 hover:shadow-amber-500/20 transition-all duration-300 rounded-xl px-8"
-            >
-              Start Learning Now — Free
-            </UButton>
-          </template>
+          <UButton
+            :to="session.data ? '/dashboard' : '/login'"
+            size="xl"
+            :icon="session.data ? 'i-lucide-arrow-right' : 'i-lucide-sparkles'"
+            :trailing="!!session.data"
+            class="font-semibold shadow-xl shadow-amber-500/10 hover:shadow-amber-500/20 transition-all duration-300 rounded-xl px-8"
+          >
+            {{ session.data ? 'Go to Dashboard' : 'Start Learning Now — Free' }}
+          </UButton>
         </div>
       </div>
     </section>
@@ -418,7 +384,7 @@ const testimonials = [
         ]"></span>
         <span>
           <template v-if="healthCheck.isLoading.value">Verifying API connection...</template>
-          <template v-else-if="healthCheck.isSuccess.value">Madar Systems Operational ({{ healthCheck.data.value }})</template>
+          <template v-else-if="healthCheck.isSuccess.value">Roadie Systems Operational ({{ healthCheck.data.value }})</template>
           <template v-else>API connection failed (unregistered environment)</template>
         </span>
       </div>

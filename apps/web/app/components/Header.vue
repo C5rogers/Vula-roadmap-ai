@@ -47,7 +47,7 @@ const items = computed<NavigationMenuItem[]>(() => {
       <div class="flex items-center gap-8">
         <NuxtLink to="/" class="flex items-center gap-2 font-extrabold text-xl tracking-tight text-stone-900 dark:text-white group">
           <span class="bg-gradient-to-r from-amber-600 to-amber-500 dark:from-amber-400 dark:to-amber-300 bg-clip-text text-transparent font-black">RD</span>
-          <span>Roadie</span>
+          <span>AI</span>
         </NuxtLink>
         <UNavigationMenu :items="items" variant="pill" class="hidden md:flex" />
       </div>
