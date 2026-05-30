@@ -31,6 +31,7 @@ const onboardingMutation = useMutation(
     onSuccess: (data) => {
       // Invalidate queries to fetch updated profile and roadmap lists
       queryClient.invalidateQueries();
+      isCreatingRoadmap.value = false;
       // Navigate to the newly created roadmap details page
       router.push(`/roadmaps/${data.roadmap.id}`);
     },
@@ -38,6 +39,7 @@ const onboardingMutation = useMutation(
 );
 
 // --- 2. Onboarding form state ---
+const isCreatingRoadmap = ref(false);
 const formStep = ref(1);
 const onboardingForm = ref({
   learningGoals: "",
@@ -96,6 +98,19 @@ function selectRoadmap(roadmap: any) {
   router.push(`/roadmaps/${roadmap.id}`);
 }
 
+function startNewRoadmap() {
+  isCreatingRoadmap.value = true;
+  formStep.value = 1;
+  onboardingForm.value = {
+    learningGoals: "",
+    experienceLevel: "beginner",
+    learningStyle: "mixed",
+    weeklyCommitment: 5,
+    preferredDuration: "4 weeks",
+    additionalNotes: "",
+  };
+}
+
 onUnmounted(() => {
   if (loadingInterval) clearInterval(loadingInterval);
 });
@@ -129,7 +144,8 @@ onUnmounted(() => {
     <!-- --- Step-by-Step Onboarding Form View --- -->
     <div
       v-else-if="
-        !profileQuery.data.value && !onboardingMutation.isSuccess.value
+        (!profileQuery.data.value || isCreatingRoadmap) &&
+        !onboardingMutation.isSuccess.value
       "
       class="mx-auto max-w-2xl py-6"
     >
@@ -337,6 +353,14 @@ onUnmounted(() => {
             >
               Back
             </UButton>
+            <UButton
+              v-else-if="formStep === 1 && profileQuery.data.value"
+              color="neutral"
+              variant="ghost"
+              @click="isCreatingRoadmap = false"
+            >
+              Cancel
+            </UButton>
             <div v-else />
 
             <div class="flex gap-2">
@@ -386,9 +410,7 @@ onUnmounted(() => {
           color="neutral"
           variant="soft"
           icon="i-lucide-plus"
-          @click="
-            profileQuery.refetch() // This can let them restart onboarding if profile is cleared
-          "
+          @click="startNewRoadmap"
           class="self-start md:self-auto rounded-xl"
         >
           Create New Roadmap
