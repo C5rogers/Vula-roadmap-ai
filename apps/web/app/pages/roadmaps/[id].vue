@@ -4,7 +4,7 @@ import { Chat } from "@ai-sdk/vue";
 import { getTextFromMessage } from "@nuxt/ui/utils/ai";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
-import { ref, computed, watch } from "vue";
+import { ref, shallowRef, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { marked } from "marked";
 
@@ -62,6 +62,89 @@ watch(activeLesson, () => {
   submittedQuizzes.value = {};
 });
 
+// YouTube Embed helper
+const youtubeEmbedUrl = computed(() => {
+  if (!activeLesson.value?.content || activeLesson.value.type !== "VIDEO")
+    return null;
+  const url = activeLesson.value.content.trim();
+
+  // Try to parse a valid 11-char YouTube ID first
+  const regExp =
+    /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  if (
+    match &&
+    match[2] &&
+    match[2].length === 11 &&
+    !url.includes("example.com")
+  ) {
+    return `https://www.youtube.com/embed/${match[2]}`;
+  }
+
+  // Search Fallback: If it's a placeholder or invalid link, embed a search-based player!
+  return `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(activeLesson.value.title + " tutorial")}`;
+});
+
+// Video External Watch URL
+const videoWatchUrl = computed(() => {
+  if (!activeLesson.value?.content) return "#";
+  const url = activeLesson.value.content.trim();
+  if (url.startsWith("http") && !url.includes("example.com")) {
+    return url;
+  }
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(activeLesson.value.title + " tutorial")}`;
+});
+
+// Audio HTML5 stream helper (lo-fi ambient backdrop stream fallback)
+const audioStreamUrl = computed(() => {
+  if (!activeLesson.value?.content || activeLesson.value.type !== "AUDIO")
+    return null;
+  const url = activeLesson.value.content.trim();
+  if (
+    url.startsWith("http") &&
+    url.endsWith(".mp3") &&
+    !url.includes("example.com")
+  ) {
+    return url;
+  }
+  // Highly reliable lofi ambient background track fallback
+  return "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+});
+
+// Audio External Podcast Link
+const audioWatchUrl = computed(() => {
+  if (!activeLesson.value?.content) return "#";
+  const url = activeLesson.value.content.trim();
+  if (url.startsWith("http") && !url.includes("example.com")) {
+    return url;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(activeLesson.value.title + " podcast audio")}`;
+});
+
+// PDF Presentation Document URL
+const pdfDocumentUrl = computed(() => {
+  if (!activeLesson.value?.content) return "#";
+  const url = activeLesson.value.content.trim();
+  if (
+    url.startsWith("http") &&
+    url.endsWith(".pdf") &&
+    !url.includes("example.com")
+  ) {
+    return url;
+  }
+  return `https://www.google.com/search?q=filetype:pdf+${encodeURIComponent(activeLesson.value.title)}`;
+});
+
+// Curated Resource fallback resolver
+function resolveResourceUrl(r: any): string {
+  if (!r?.url) return "#";
+  const url = r.url.trim();
+  if (url.startsWith("http") && !url.includes("example.com")) {
+    return url;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(r.title)}`;
+}
+
 // --- 3. Interactive Lesson Features States ---
 // Flashcards state
 const currentCardIdx = ref(0);
@@ -99,19 +182,75 @@ function handleSubmitQuestion(questionId: string) {
 // --- 4. Contextual AI Chat ---
 const chatInput = ref("");
 const chatMessages = ref<UIMessage[]>([]);
-const aiApiUrl = `${useRuntimeConfig().public.serverUrl}/ai`;
+const aiApiUrl = computed(() => {
+  const uId = session.value?.data?.user?.id || "";
+  return `${useRuntimeConfig().public.serverUrl}/ai?roadmapId=${roadmapId}&userId=${uId}`;
+});
 
-let chatInstance = ref<Chat<any> | null>(null);
+const chatInstance = shallowRef<Chat<any> | null>(null);
 
-// Watch active lesson or active roadmap change to reinitialize chat with context
+// Query for saved chat history
+const chatHistoryQuery = useQuery({
+  ...$orpc.onboarding.getChatHistory.queryOptions({ input: { roadmapId } }),
+  enabled: computed(() => !!session.value?.data?.user && !!roadmapId),
+});
+
+// Autocomplete lesson dropdown logic
+const showLessonDropdown = ref(false);
+
+const filteredLessonsForDropdown = computed(() => {
+  const roadmap = roadmapQuery.data.value;
+  if (!roadmap?.chapters) return [];
+  const list: any[] = [];
+  for (const chapter of roadmap.chapters) {
+    for (const lesson of chapter.lessons) {
+      list.push(lesson);
+    }
+  }
+  return list;
+});
+
+function insertLessonMention(lesson: any) {
+  const currentText = chatInput.value;
+  const lastChar = currentText.slice(-1);
+  if (lastChar === "@" || lastChar === "#") {
+    chatInput.value = currentText.slice(0, -1) + `@${lesson.title} `;
+  } else {
+    chatInput.value = currentText + `@${lesson.title} `;
+  }
+  showLessonDropdown.value = false;
+}
+
+// Watch chatInput to trigger the dropdown
+watch(chatInput, (val) => {
+  if (val.endsWith("@") || val.endsWith("#")) {
+    showLessonDropdown.value = true;
+  } else if (!val.includes("@") && !val.includes("#")) {
+    showLessonDropdown.value = false;
+  }
+});
+
+// Watch active lesson, active roadmap, or loaded chat history to reinitialize chat with context
 watch(
-  [() => roadmapQuery.data.value?.id, () => activeLesson.value?.id],
-  ([id, lessonId]) => {
+  [
+    () => roadmapQuery.data.value?.id,
+    () => activeLesson.value?.id,
+    () => chatHistoryQuery.data.value,
+  ],
+  ([id, lessonId, dbMsgs]) => {
     const roadmap = roadmapQuery.data.value;
     if (!roadmap) {
       chatInstance.value = null;
       return;
     }
+
+    // Format saved messages from db if any
+    const formattedSaved = (dbMsgs || []).map((m: any) => ({
+      id: m.id,
+      role: m.role.toLowerCase() as any,
+      parts: [{ type: "text", text: m.content }],
+      createdAt: new Date(m.createdAt),
+    }));
 
     // Prepare system instructions context
     const contextPrompt = `You are a world-class AI Learning Coach assisting the user on their learning journey.
@@ -130,25 +269,29 @@ Please help the user understand the active lesson, explain difficult concepts in
         parts: [{ type: "text", text: contextPrompt }],
         createdAt: new Date(),
       },
-      {
-        id: "welcome-init",
-        role: "assistant" as any,
-        parts: [
-          {
-            type: "text",
-            text:
-              roadmap.learningStrategy ||
-              `Welcome to your learning journey for "${roadmap.title}"! How can I help you tackle this lesson today?`,
-          },
-        ],
-        createdAt: new Date(),
-      },
+      ...(formattedSaved.length > 0
+        ? formattedSaved
+        : [
+            {
+              id: "welcome-init",
+              role: "assistant" as any,
+              parts: [
+                {
+                  type: "text",
+                  text:
+                    roadmap.learningStrategy ||
+                    `Welcome to your learning journey for "${roadmap.title}"! How can I help you tackle this lesson today?`,
+                },
+              ],
+              createdAt: new Date(),
+            },
+          ]),
     ] as any;
 
     chatInstance.value = new Chat({
       messages: chatMessages.value as any,
       transport: new DefaultChatTransport({
-        api: aiApiUrl,
+        api: aiApiUrl.value,
       }),
       onError(err) {
         console.error("Coach error:", err);
@@ -165,11 +308,49 @@ function handleChatSubmit(e: Event) {
   const userInput = chatInput.value;
   chatInput.value = "";
 
-  chatInstance.value.sendMessage({ text: userInput });
+  // Check if there is a referenced lesson name in the input
+  let referencedLesson = null;
+  const roadmap = roadmapQuery.data.value;
+  if (roadmap?.chapters) {
+    for (const chapter of roadmap.chapters) {
+      for (const lesson of chapter.lessons) {
+        if (
+          userInput.toLowerCase().includes(lesson.title.toLowerCase()) ||
+          userInput.toLowerCase().includes(`@${lesson.title.toLowerCase()}`) ||
+          userInput.toLowerCase().includes(`#${lesson.title.toLowerCase()}`)
+        ) {
+          referencedLesson = lesson;
+          break;
+        }
+      }
+      if (referencedLesson) break;
+    }
+  }
+
+  if (referencedLesson) {
+    const additionalContext = `\n[User referenced a specific lesson: "${referencedLesson.title}". Here is the lesson context to answer their question:
+Lesson Overview: ${referencedLesson.overview || ""}
+Lesson Content Reference: ${referencedLesson.content || ""}]`;
+    chatInstance.value.sendMessage({
+      text: `${userInput}${additionalContext}`,
+    });
+  } else {
+    chatInstance.value.sendMessage({ text: userInput });
+  }
+}
+
+function cleanMessageContent(content: string): string {
+  if (!content) return "";
+  const index = content.indexOf("\n[User referenced a specific lesson:");
+  if (index !== -1) {
+    return content.substring(0, index);
+  }
+  return content;
 }
 
 const filteredMessages = computed(() => {
-  return chatMessages.value.filter((m: any) => m.role !== "system");
+  if (!chatInstance.value || !chatInstance.value.messages) return [];
+  return chatInstance.value.messages.filter((m: any) => m.role !== "system");
 });
 
 const hasChatMessages = computed(() => filteredMessages.value.length > 0);
@@ -197,7 +378,8 @@ function isYouTubeUrl(url: string): boolean {
 function getYouTubeEmbedUrl(url: string): string {
   if (!url) return "";
   let videoId = "";
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const regExp =
+    /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
   if (match && match[2] && match[2].length === 11) {
     videoId = match[2];
@@ -228,7 +410,10 @@ function getYouTubeEmbedUrl(url: string): string {
       color="error"
       icon="i-lucide-alert-circle"
       title="Failed to load roadmap"
-      :description="roadmapQuery.error.value?.message || 'An error occurred while loading the roadmap.'"
+      :description="
+        roadmapQuery.error.value?.message ||
+        'An error occurred while loading the roadmap.'
+      "
     />
 
     <!-- --- Detail Active Roadmap and Syllabus View --- -->
@@ -268,19 +453,34 @@ function getYouTubeEmbedUrl(url: string): string {
         <!-- Layout: Double Column inside the detail page (Syllabus vs Lesson view) -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
           <!-- Mobile Syllabus Accordion (Hidden on Desktop) -->
-          <div class="lg:hidden border border-default rounded-xl bg-elevated/20 overflow-hidden">
-            <button 
+          <div
+            class="lg:hidden border border-default rounded-xl bg-elevated/20 overflow-hidden"
+          >
+            <button
               @click="isMobileSyllabusOpen = !isMobileSyllabusOpen"
               class="w-full px-4 py-3 text-sm font-bold text-highlighted flex items-center justify-between bg-elevated/40 hover:bg-elevated/60 transition-colors"
             >
               <span class="flex items-center gap-2">
                 <UIcon name="i-lucide-book" class="text-primary" />
-                <span>Syllabus Outline ({{ activeLesson ? activeLesson.title : 'Select a Lesson' }})</span>
+                <span
+                  >Syllabus Outline ({{
+                    activeLesson ? activeLesson.title : "Select a Lesson"
+                  }})</span
+                >
               </span>
-              <UIcon :name="isMobileSyllabusOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
+              <UIcon
+                :name="
+                  isMobileSyllabusOpen
+                    ? 'i-lucide-chevron-up'
+                    : 'i-lucide-chevron-down'
+                "
+              />
             </button>
-            
-            <div v-if="isMobileSyllabusOpen" class="border-t border-default max-h-[50vh] overflow-y-auto p-2 space-y-2 animate-fade-in">
+
+            <div
+              v-if="isMobileSyllabusOpen"
+              class="border-t border-default max-h-[50vh] overflow-y-auto p-2 space-y-2 animate-fade-in"
+            >
               <div
                 v-for="chapter in roadmapQuery.data.value.chapters"
                 :key="chapter.id"
@@ -292,26 +492,52 @@ function getYouTubeEmbedUrl(url: string): string {
                   class="w-full text-left bg-elevated/20 hover:bg-elevated/40 cursor-pointer transition-colors px-3 py-2 flex items-center justify-between gap-2 border-b border-default"
                 >
                   <div class="flex flex-col min-w-0">
-                    <span class="text-[10px] font-bold text-primary uppercase tracking-wider">Chapter {{ chapter.order }}</span>
-                    <span class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5">{{ chapter.title }}</span>
+                    <span
+                      class="text-[10px] font-bold text-primary uppercase tracking-wider"
+                      >Chapter {{ chapter.order }}</span
+                    >
+                    <span
+                      class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5"
+                      >{{ chapter.title }}</span
+                    >
                   </div>
-                  <UIcon 
-                    :name="openChapters[chapter.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" 
+                  <UIcon
+                    :name="
+                      openChapters[chapter.id]
+                        ? 'i-lucide-chevron-up'
+                        : 'i-lucide-chevron-down'
+                    "
                     class="w-4 h-4 text-stone-500 dark:text-stone-400 shrink-0"
                   />
                 </button>
 
                 <!-- Lessons inside chapter (Collapsible) -->
-                <div v-if="openChapters[chapter.id]" class="divide-y divide-default animate-fade-in">
+                <div
+                  v-if="openChapters[chapter.id]"
+                  class="divide-y divide-default animate-fade-in"
+                >
                   <button
                     v-for="lesson in chapter.lessons"
                     :key="lesson.id"
-                    @click="activeLesson = lesson; isMobileSyllabusOpen = false"
+                    @click="
+                      activeLesson = lesson;
+                      isMobileSyllabusOpen = false;
+                    "
                     class="w-full text-left px-3 py-2.5 text-xs hover:bg-primary/5 cursor-pointer transition-colors flex items-center justify-between gap-2"
-                    :class="activeLesson?.id === lesson.id ? 'bg-primary/10 border-l-2 border-primary font-bold text-primary' : 'text-stone-500 dark:text-stone-300'"
+                    :class="
+                      activeLesson?.id === lesson.id
+                        ? 'bg-primary/10 border-l-2 border-primary font-bold text-primary'
+                        : 'text-stone-500 dark:text-stone-300'
+                    "
                   >
-                    <span class="line-clamp-2">{{ lesson.order }}. {{ lesson.title }}</span>
-                    <UIcon v-if="activeLesson?.id === lesson.id" name="i-lucide-book-open" class="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span class="line-clamp-2"
+                      >{{ lesson.order }}. {{ lesson.title }}</span
+                    >
+                    <UIcon
+                      v-if="activeLesson?.id === lesson.id"
+                      name="i-lucide-book-open"
+                      class="h-3.5 w-3.5 text-primary shrink-0"
+                    />
                   </button>
                 </div>
               </div>
@@ -341,17 +567,30 @@ function getYouTubeEmbedUrl(url: string): string {
                   class="w-full text-left bg-elevated/40 hover:bg-elevated/60 cursor-pointer transition-colors px-3 py-2.5 border-b border-default flex items-center justify-between gap-2"
                 >
                   <div class="flex flex-col min-w-0">
-                    <span class="text-[10px] font-bold text-primary uppercase tracking-wider">Chapter {{ chapter.order }}</span>
-                    <span class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5">{{ chapter.title }}</span>
+                    <span
+                      class="text-[10px] font-bold text-primary uppercase tracking-wider"
+                      >Chapter {{ chapter.order }}</span
+                    >
+                    <span
+                      class="text-xs font-semibold text-highlighted line-clamp-1 mt-0.5"
+                      >{{ chapter.title }}</span
+                    >
                   </div>
-                  <UIcon 
-                    :name="openChapters[chapter.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" 
+                  <UIcon
+                    :name="
+                      openChapters[chapter.id]
+                        ? 'i-lucide-chevron-up'
+                        : 'i-lucide-chevron-down'
+                    "
                     class="w-4 h-4 text-stone-500 dark:text-stone-400 shrink-0"
                   />
                 </button>
 
                 <!-- Lessons inside chapter (Collapsible) -->
-                <div v-if="openChapters[chapter.id]" class="divide-y divide-default animate-fade-in">
+                <div
+                  v-if="openChapters[chapter.id]"
+                  class="divide-y divide-default animate-fade-in"
+                >
                   <button
                     v-for="lesson in chapter.lessons"
                     :key="lesson.id"
@@ -360,16 +599,35 @@ function getYouTubeEmbedUrl(url: string): string {
                     :class="
                       activeLesson?.id === lesson.id
                         ? 'bg-primary/10 border-l-2 border-primary font-bold text-primary'
-                        : 'text-stone-500 dark:text-stone-300'
+                        : 'text-neutral-600'
                     "
                   >
-                    <span class="line-clamp-2"
-                      >{{ lesson.order }}. {{ lesson.title }}</span
-                    >
+                    <div class="flex items-center gap-2 min-w-0">
+                      <UIcon
+                        :name="
+                          lesson.type === 'VIDEO'
+                            ? 'i-lucide-video'
+                            : lesson.type === 'AUDIO'
+                              ? 'i-lucide-headphones'
+                              : lesson.type === 'PDF'
+                                ? 'i-lucide-file'
+                                : 'i-lucide-file-text'
+                        "
+                        class="h-3.5 w-3.5 shrink-0"
+                        :class="
+                          activeLesson?.id === lesson.id
+                            ? 'text-primary'
+                            : 'text-neutral-400'
+                        "
+                      />
+                      <span class="line-clamp-2"
+                        >{{ lesson.order }}. {{ lesson.title }}</span
+                      >
+                    </div>
                     <UIcon
                       v-if="activeLesson?.id === lesson.id"
-                      name="i-lucide-book-open"
-                      class="h-3.5 w-3.5 text-primary shrink-0"
+                      name="i-lucide-chevron-right"
+                      class="h-3 w-3 text-primary shrink-0 animate-pulse"
                     />
                   </button>
                 </div>
@@ -436,16 +694,164 @@ function getYouTubeEmbedUrl(url: string): string {
               <!-- Tab 1: Lesson Notes -->
               <div
                 v-if="activeTab === 'notes'"
-                class="space-y-3 animate-fade-in"
+                class="space-y-4 animate-fade-in"
               >
                 <span
                   class="font-bold text-sm text-highlighted block pb-1 border-b border-default"
                   >Study Content</span
                 >
+
+                <!-- Case A: Text Lesson -->
                 <div
+                  v-if="activeLesson.type === 'TEXT' || !activeLesson.type"
                   class="prose dark:prose-invert text-xs leading-6 max-w-none text-stone-700 dark:text-stone-200 bg-default/40 p-4 rounded-xl border border-default/60"
                   v-html="parseMarkdown(activeLesson.content)"
                 />
+
+                <!-- Case B: Video Lesson -->
+                <div
+                  v-else-if="activeLesson.type === 'VIDEO'"
+                  class="space-y-4"
+                >
+                  <div
+                    v-if="youtubeEmbedUrl"
+                    class="aspect-video w-full rounded-2xl overflow-hidden border border-default shadow-sm bg-black"
+                  >
+                    <iframe
+                      :src="youtubeEmbedUrl"
+                      class="w-full h-full border-0"
+                      allow="
+                        accelerometer;
+                        autoplay;
+                        clipboard-write;
+                        encrypted-media;
+                        gyroscope;
+                        picture-in-picture;
+                      "
+                      allowfullscreen
+                    ></iframe>
+                  </div>
+
+                  <div
+                    class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm"
+                  >
+                    <div class="rounded-full p-4 bg-primary/10 text-primary">
+                      <UIcon
+                        name="i-lucide-play-circle"
+                        class="h-10 w-10 animate-pulse"
+                      />
+                    </div>
+                    <div class="space-y-1.5 w-full">
+                      <h3 class="text-sm font-bold text-highlighted">
+                        Video Lecture Resource
+                      </h3>
+                      <p
+                        class="text-xs text-muted max-w-md mx-auto leading-relaxed"
+                      >
+                        This lesson includes a curated video lecture. You can
+                        watch it in the embedded player above or view it
+                        directly on the host platform.
+                      </p>
+                      <div
+                        class="text-[11px] font-mono text-muted select-all max-w-md truncate bg-default/50 px-2.5 py-1 rounded-md border border-default/60 mx-auto mt-1"
+                      >
+                        {{ activeLesson.content }}
+                      </div>
+                    </div>
+                    <UButton
+                      :href="videoWatchUrl"
+                      target="_blank"
+                      color="primary"
+                      icon="i-lucide-external-link"
+                      class="rounded-xl px-5"
+                    >
+                      Watch Video on Host Platform
+                    </UButton>
+                  </div>
+                </div>
+
+                <!-- Case C: Audio Lesson -->
+                <div
+                  v-else-if="activeLesson.type === 'AUDIO'"
+                  class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm"
+                >
+                  <div class="rounded-full p-4 bg-primary/10 text-primary">
+                    <UIcon
+                      name="i-lucide-headphones"
+                      class="h-10 w-10 animate-pulse"
+                    />
+                  </div>
+                  <div class="space-y-1.5 w-full">
+                    <h3 class="text-sm font-bold text-highlighted">
+                      Audio Lecture & Podcast Discussion
+                    </h3>
+                    <p
+                      class="text-xs text-muted max-w-md mx-auto leading-relaxed"
+                    >
+                      Listen to the audio podcast-style narrative transcript
+                      discussing the core concepts of this lesson.
+                    </p>
+                    <div
+                      class="text-[11px] font-mono text-muted select-all max-w-md truncate bg-default/50 px-2.5 py-1 rounded-md border border-default/60 mx-auto mt-1 mb-2"
+                    >
+                      {{ activeLesson.content }}
+                    </div>
+                  </div>
+
+                  <!-- HTML5 Audio Player -->
+                  <audio
+                    :src="audioStreamUrl"
+                    controls
+                    class="w-full max-w-md border border-default rounded-xl p-1 bg-default/50 shadow-inner"
+                  ></audio>
+
+                  <UButton
+                    :href="audioWatchUrl"
+                    target="_blank"
+                    variant="subtle"
+                    color="neutral"
+                    icon="i-lucide-external-link"
+                    class="rounded-xl"
+                  >
+                    Open Audio Source URL
+                  </UButton>
+                </div>
+
+                <!-- Case D: PDF / Slides Lesson -->
+                <div
+                  v-else-if="activeLesson.type === 'PDF'"
+                  class="p-6 rounded-2xl border border-default bg-elevated/20 flex flex-col items-center justify-center text-center space-y-4 shadow-sm"
+                >
+                  <div class="rounded-full p-4 bg-primary/10 text-primary">
+                    <UIcon name="i-lucide-file-text" class="h-10 w-10" />
+                  </div>
+                  <div class="space-y-1.5 w-full">
+                    <h3 class="text-sm font-bold text-highlighted">
+                      PDF Slide Guide & Document Presentation
+                    </h3>
+                    <p
+                      class="text-xs text-muted max-w-md mx-auto leading-relaxed"
+                    >
+                      A downloadable, comprehensive presentation slide document
+                      is available for this lesson. Click below to view the
+                      slide deck.
+                    </p>
+                    <div
+                      class="text-[11px] font-mono text-muted select-all max-w-md truncate bg-default/50 px-2.5 py-1 rounded-md border border-default/60 mx-auto mt-1 mb-2"
+                    >
+                      {{ activeLesson.content }}
+                    </div>
+                  </div>
+                  <UButton
+                    :href="pdfDocumentUrl"
+                    target="_blank"
+                    color="primary"
+                    icon="i-lucide-external-link"
+                    class="rounded-xl px-5"
+                  >
+                    Open PDF Document
+                  </UButton>
+                </div>
               </div>
 
               <!-- Tab 2: Flashcards (Flip cards) -->
@@ -578,22 +984,44 @@ function getYouTubeEmbedUrl(url: string): string {
                       class="md:col-span-2 p-4 rounded-xl border border-default bg-elevated/20 space-y-3 shadow-sm flex flex-col"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <span class="text-xs font-bold text-highlighted flex items-center gap-1.5">
-                          <UIcon name="i-lucide-play-circle" class="text-primary" />
+                        <span
+                          class="text-xs font-bold text-highlighted flex items-center gap-1.5"
+                        >
+                          <UIcon
+                            name="i-lucide-play-circle"
+                            class="text-primary"
+                          />
                           {{ r.title }}
                         </span>
-                        <UBadge label="YOUTUBE" color="primary" size="sm" variant="subtle" />
+                        <UBadge
+                          label="YOUTUBE"
+                          color="primary"
+                          size="sm"
+                          variant="subtle"
+                        />
                       </div>
-                      <div class="aspect-video rounded-xl overflow-hidden border border-default shadow-inner bg-black">
+                      <div
+                        class="aspect-video rounded-xl overflow-hidden border border-default shadow-inner bg-black"
+                      >
                         <iframe
                           :src="getYouTubeEmbedUrl(r.url)"
                           class="w-full h-full"
                           frameborder="0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allow="
+                            accelerometer;
+                            autoplay;
+                            clipboard-write;
+                            encrypted-media;
+                            gyroscope;
+                            picture-in-picture;
+                          "
                           allowfullscreen
                         />
                       </div>
-                      <div v-if="r.description" class="text-[11px] text-muted leading-relaxed">
+                      <div
+                        v-if="r.description"
+                        class="text-[11px] text-muted leading-relaxed"
+                      >
                         {{ r.description }}
                       </div>
                     </div>
@@ -601,7 +1029,7 @@ function getYouTubeEmbedUrl(url: string): string {
                     <!-- General Resource Links -->
                     <a
                       v-else
-                      :href="r.url"
+                      :href="resolveResourceUrl(r)"
                       target="_blank"
                       class="p-4 rounded-xl border border-default bg-elevated/20 hover:border-primary/50 hover:shadow-md transition-all duration-300 block space-y-1.5 group"
                     >
@@ -844,7 +1272,12 @@ function getYouTubeEmbedUrl(url: string): string {
                     : 'bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-tl-none text-stone-800 dark:text-stone-100'
                 "
               >
-                <div class="prose dark:prose-invert text-xs max-w-none text-inherit" v-html="parseMarkdown(getTextFromMessage(msg))" />
+                <div
+                  class="prose dark:prose-invert text-xs max-w-none text-inherit"
+                  v-html="
+                    parseMarkdown(cleanMessageContent(getTextFromMessage(msg)))
+                  "
+                />
               </div>
             </div>
           </div>
@@ -852,6 +1285,38 @@ function getYouTubeEmbedUrl(url: string): string {
 
         <!-- Chat message input prompt -->
         <div class="p-4 border-t border-default bg-elevated/50 sticky bottom-0">
+          <!-- Floating autocomplete lesson list -->
+          <div
+            v-if="showLessonDropdown"
+            class="absolute bottom-16 left-4 right-4 bg-white dark:bg-stone-900 border border-default rounded-xl shadow-lg p-2 max-h-48 overflow-y-auto z-50 space-y-1 animate-fade-in"
+          >
+            <div
+              class="text-[10px] text-muted font-bold px-2 pb-1.5 border-b border-default uppercase tracking-wider"
+            >
+              Select a Lesson to Reference
+            </div>
+            <button
+              v-for="lesson in filteredLessonsForDropdown"
+              :key="lesson.id"
+              @click="insertLessonMention(lesson)"
+              class="w-full text-left px-2 py-1.5 text-xs hover:bg-primary/10 hover:text-primary rounded-lg cursor-pointer transition-colors flex items-center gap-2"
+            >
+              <UIcon
+                :name="
+                  lesson.type === 'VIDEO'
+                    ? 'i-lucide-video'
+                    : lesson.type === 'AUDIO'
+                      ? 'i-lucide-headphones'
+                      : lesson.type === 'PDF'
+                        ? 'i-lucide-file'
+                        : 'i-lucide-file-text'
+                "
+                class="w-3.5 h-3.5"
+              />
+              <span class="truncate">{{ lesson.title }}</span>
+            </button>
+          </div>
+
           <form
             @submit.prevent="handleChatSubmit"
             class="flex gap-2 items-center"
@@ -892,28 +1357,55 @@ function getYouTubeEmbedUrl(url: string): string {
 
     <!-- Mobile Chat Slide-over Drawer -->
     <Transition name="fade">
-      <div v-if="showMobileChat" class="lg:hidden fixed inset-0 bg-black/65 backdrop-blur-sm z-50 flex justify-end" @click.self="showMobileChat = false">
-        <Transition name="slide-left" @after-leave="showMobileChat = false" appear>
-          <div v-if="showMobileChat" class="w-full max-w-md bg-stone-50 dark:bg-stone-950 h-full shadow-2xl border-l border-stone-200 dark:border-stone-800 flex flex-col">
+      <div
+        v-if="showMobileChat"
+        class="lg:hidden fixed inset-0 bg-black/65 backdrop-blur-sm z-50 flex justify-end"
+        @click.self="showMobileChat = false"
+      >
+        <Transition
+          name="slide-left"
+          @after-leave="showMobileChat = false"
+          appear
+        >
+          <div
+            v-if="showMobileChat"
+            class="w-full max-w-md bg-stone-50 dark:bg-stone-950 h-full shadow-2xl border-l border-stone-200 dark:border-stone-800 flex flex-col"
+          >
             <!-- Mobile Chat Header -->
-            <div class="px-4 py-3 border-b border-default bg-elevated/50 flex items-center justify-between">
+            <div
+              class="px-4 py-3 border-b border-default bg-elevated/50 flex items-center justify-between"
+            >
               <div class="flex items-center gap-2.5">
                 <div class="rounded-full p-2 bg-primary/10 text-primary">
                   <UIcon name="i-lucide-sparkles" class="h-4 w-4" />
                 </div>
                 <div>
-                  <div class="text-sm font-bold text-highlighted">AI Learning Coach</div>
-                  <div class="text-[10px] text-muted flex items-center gap-1 mt-0.5">
-                    <span class="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                  <div class="text-sm font-bold text-highlighted">
+                    AI Learning Coach
+                  </div>
+                  <div
+                    class="text-[10px] text-muted flex items-center gap-1 mt-0.5"
+                  >
+                    <span
+                      class="h-1.5 w-1.5 rounded-full bg-success animate-pulse"
+                    />
                     Tuned to current lesson context
                   </div>
                 </div>
               </div>
-              <UButton variant="ghost" color="neutral" icon="i-lucide-x" @click="showMobileChat = false" class="rounded-xl" />
+              <UButton
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-x"
+                @click="showMobileChat = false"
+                class="rounded-xl"
+              />
             </div>
 
             <!-- Mobile Chat messages view -->
-            <div class="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4 bg-stone-50 dark:bg-stone-950">
+            <div
+              class="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-4 bg-stone-50 dark:bg-stone-950"
+            >
               <div
                 v-if="!chatInstance"
                 class="flex h-full items-center justify-center text-center text-muted text-xs"
@@ -957,14 +1449,55 @@ function getYouTubeEmbedUrl(url: string): string {
                         : 'bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-tl-none text-stone-800 dark:text-stone-100'
                     "
                   >
-                    <div class="prose dark:prose-invert text-xs max-w-none text-inherit" v-html="parseMarkdown(getTextFromMessage(msg))" />
+                    <div
+                      class="prose dark:prose-invert text-xs max-w-none text-inherit"
+                      v-html="
+                        parseMarkdown(
+                          cleanMessageContent(getTextFromMessage(msg)),
+                        )
+                      "
+                    />
                   </div>
                 </div>
               </div>
             </div>
 
             <!-- Mobile Chat message input prompt -->
-            <div class="p-4 border-t border-default bg-elevated/50 sticky bottom-0">
+            <div
+              class="p-4 border-t border-default bg-elevated/50 sticky bottom-0"
+            >
+              <!-- Floating autocomplete lesson list -->
+              <div
+                v-if="showLessonDropdown"
+                class="absolute bottom-16 left-4 right-4 bg-white dark:bg-stone-900 border border-default rounded-xl shadow-lg p-2 max-h-48 overflow-y-auto z-50 space-y-1 animate-fade-in"
+              >
+                <div
+                  class="text-[10px] text-muted font-bold px-2 pb-1.5 border-b border-default uppercase tracking-wider"
+                >
+                  Select a Lesson to Reference
+                </div>
+                <button
+                  v-for="lesson in filteredLessonsForDropdown"
+                  :key="lesson.id"
+                  @click="insertLessonMention(lesson)"
+                  class="w-full text-left px-2 py-1.5 text-xs hover:bg-primary/10 hover:text-primary rounded-lg cursor-pointer transition-colors flex items-center gap-2"
+                >
+                  <UIcon
+                    :name="
+                      lesson.type === 'VIDEO'
+                        ? 'i-lucide-video'
+                        : lesson.type === 'AUDIO'
+                          ? 'i-lucide-headphones'
+                          : lesson.type === 'PDF'
+                            ? 'i-lucide-file'
+                            : 'i-lucide-file-text'
+                    "
+                    class="w-3.5 h-3.5"
+                  />
+                  <span class="truncate">{{ lesson.title }}</span>
+                </button>
+              </div>
+
               <form
                 @submit.prevent="handleChatSubmit"
                 class="flex gap-2 items-center"

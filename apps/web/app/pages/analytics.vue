@@ -15,6 +15,17 @@ const profileQuery = useQuery({
   enabled: computed(() => !!session.value?.data?.user),
 });
 
+// Redirect to onboarding dashboard if they don't have a profile yet
+watch(
+  () => profileQuery.data.value,
+  (profile) => {
+    if (profileQuery.status.value === "success" && !profile) {
+      navigateTo("/dashboard", { replace: true });
+    }
+  },
+  { immediate: true },
+);
+
 const roadmapsQuery = useQuery({
   ...$orpc.onboarding.getRoadmaps.queryOptions(),
   enabled: computed(
@@ -99,7 +110,15 @@ const velocityChartOptions = computed(() => ({
     strokeDashArray: 4,
   },
   xaxis: {
-    categories: ["Day 1", "Day 5", "Day 10", "Day 15", "Day 20", "Day 25", "Day 30"],
+    categories: [
+      "Day 1",
+      "Day 5",
+      "Day 10",
+      "Day 15",
+      "Day 20",
+      "Day 25",
+      "Day 30",
+    ],
     labels: {
       style: {
         colors: isDark.value ? "#a8a29e" : "#78716c", // stone-400 vs stone-500
@@ -139,7 +158,14 @@ const radarChartOptions = computed(() => ({
   fill: { opacity: 0.25 },
   markers: { size: 4, colors: ["#d97706"] },
   xaxis: {
-    categories: ["Syntax & Core", "Architecture", "APIs & Web", "DevOps", "Databases", "Testing"],
+    categories: [
+      "Syntax & Core",
+      "Architecture",
+      "APIs & Web",
+      "DevOps",
+      "Databases",
+      "Testing",
+    ],
     labels: {
       style: {
         colors: Array(6).fill(isDark.value ? "#e7e5e4" : "#44403c"), // stone-200 vs stone-700
@@ -231,13 +257,20 @@ const donutChartOptions = computed(() => ({
 <template>
   <div class="p-6 max-w-7xl mx-auto space-y-6">
     <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-stone-200 dark:border-stone-800 pb-5 text-left">
+    <div
+      class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-stone-200 dark:border-stone-800 pb-5 text-left"
+    >
       <div>
-        <h1 class="text-2xl font-bold tracking-tight text-stone-950 dark:text-stone-50">
+        <h1
+          class="text-2xl font-bold tracking-tight text-stone-950 dark:text-stone-50"
+        >
           Learning Analytics
         </h1>
-        <p class="text-stone-500 dark:text-stone-400 text-xs mt-1 leading-relaxed">
-          Monitor your velocity, check active recalls, and verify core metrics across all your registered curriculum tracks.
+        <p
+          class="text-stone-500 dark:text-stone-400 text-xs mt-1 leading-relaxed"
+        >
+          Monitor your velocity, check active recalls, and verify core metrics
+          across all your registered curriculum tracks.
         </p>
       </div>
     </div>
@@ -250,29 +283,45 @@ const donutChartOptions = computed(() => ({
         class="flex items-center justify-between p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm"
       >
         <div class="space-y-2 text-left">
-          <span class="text-xs text-stone-400 dark:text-stone-500 font-semibold tracking-wide uppercase">
+          <span
+            class="text-xs text-stone-400 dark:text-stone-500 font-semibold tracking-wide uppercase"
+          >
             {{ m.label }}
           </span>
-          <div class="text-2xl font-black text-stone-900 dark:text-white tracking-tight">
+          <div
+            class="text-2xl font-black text-stone-900 dark:text-white tracking-tight"
+          >
             {{ m.value }}
           </div>
-          <p class="text-[10px] text-amber-600 dark:text-amber-500 font-semibold tracking-wide uppercase">
+          <p
+            class="text-[10px] text-amber-600 dark:text-amber-500 font-semibold tracking-wide uppercase"
+          >
             {{ m.change }}
           </p>
         </div>
-        <div class="h-10 w-10 rounded-xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-600 dark:text-stone-300">
+        <div
+          class="h-10 w-10 rounded-xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-600 dark:text-stone-300"
+        >
           <UIcon :name="m.icon" class="w-5 h-5" />
         </div>
       </div>
     </div>
 
     <!-- Main Chart: Learning Velocity Spline Graph (Interactive ApexCharts) -->
-    <div class="p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm space-y-4">
+    <div
+      class="p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm space-y-4"
+    >
       <div class="text-left">
-        <h2 class="text-base font-bold text-stone-900 dark:text-white tracking-tight">
+        <h2
+          class="text-base font-bold text-stone-900 dark:text-white tracking-tight"
+        >
           Learning Velocity (Daily Hours)
         </h2>
-        <p class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider">Last 30 Active Days</p>
+        <p
+          class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider"
+        >
+          Last 30 Active Days
+        </p>
       </div>
 
       <div class="relative w-full overflow-hidden">
@@ -284,8 +333,13 @@ const donutChartOptions = computed(() => ({
             :series="velocityChartSeries"
           />
           <template #fallback>
-            <div class="h-[320px] flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse">
-              <UIcon name="i-lucide-loader-2" class="w-6 h-6 animate-spin text-stone-400" />
+            <div
+              class="h-[320px] flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse"
+            >
+              <UIcon
+                name="i-lucide-loader-2"
+                class="w-6 h-6 animate-spin text-stone-400"
+              />
             </div>
           </template>
         </ClientOnly>
@@ -295,12 +349,20 @@ const donutChartOptions = computed(() => ({
     <!-- Middle Row: Bar and Donut Charts -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <!-- Weekly Performance (Bar Chart) -->
-      <div class="p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm space-y-4">
+      <div
+        class="p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm space-y-4"
+      >
         <div class="text-left">
-          <h2 class="text-base font-bold text-stone-900 dark:text-white tracking-tight">
+          <h2
+            class="text-base font-bold text-stone-900 dark:text-white tracking-tight"
+          >
             Weekly Breakdown
           </h2>
-          <p class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider">Hourly distribution</p>
+          <p
+            class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider"
+          >
+            Hourly distribution
+          </p>
         </div>
         <div class="relative w-full overflow-hidden">
           <ClientOnly>
@@ -311,8 +373,13 @@ const donutChartOptions = computed(() => ({
               :series="barChartSeries"
             />
             <template #fallback>
-              <div class="h-[260px] flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse">
-                <UIcon name="i-lucide-loader-2" class="w-6 h-6 animate-spin text-stone-400" />
+              <div
+                class="h-[260px] flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse"
+              >
+                <UIcon
+                  name="i-lucide-loader-2"
+                  class="w-6 h-6 animate-spin text-stone-400"
+                />
               </div>
             </template>
           </ClientOnly>
@@ -320,14 +387,24 @@ const donutChartOptions = computed(() => ({
       </div>
 
       <!-- Curriculum Progress Status (Donut Chart) -->
-      <div class="p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm space-y-4">
+      <div
+        class="p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm space-y-4"
+      >
         <div class="text-left">
-          <h2 class="text-base font-bold text-stone-900 dark:text-white tracking-tight">
+          <h2
+            class="text-base font-bold text-stone-900 dark:text-white tracking-tight"
+          >
             Curriculum Status
           </h2>
-          <p class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider">Completion stages</p>
+          <p
+            class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider"
+          >
+            Completion stages
+          </p>
         </div>
-        <div class="relative w-full overflow-hidden flex items-center justify-center">
+        <div
+          class="relative w-full overflow-hidden flex items-center justify-center"
+        >
           <ClientOnly>
             <apexchart
               height="260"
@@ -336,8 +413,13 @@ const donutChartOptions = computed(() => ({
               :series="donutChartSeries"
             />
             <template #fallback>
-              <div class="h-[260px] w-full flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse">
-                <UIcon name="i-lucide-loader-2" class="w-6 h-6 animate-spin text-stone-400" />
+              <div
+                class="h-[260px] w-full flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse"
+              >
+                <UIcon
+                  name="i-lucide-loader-2"
+                  class="w-6 h-6 animate-spin text-stone-400"
+                />
               </div>
             </template>
           </ClientOnly>
@@ -348,12 +430,20 @@ const donutChartOptions = computed(() => ({
     <!-- Bottom Row: Radar Chart & Recent Activity -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       <!-- Radar Chart (Bespoke Handcrafted Hexagon Radar) -->
-      <div class="lg:col-span-5 p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm flex flex-col justify-between">
+      <div
+        class="lg:col-span-5 p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm flex flex-col justify-between"
+      >
         <div class="text-left mb-4">
-          <h2 class="text-base font-bold text-stone-900 dark:text-white tracking-tight">
+          <h2
+            class="text-base font-bold text-stone-900 dark:text-white tracking-tight"
+          >
             Skill Dimension Index
           </h2>
-          <p class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider">Multi-discipline coverage</p>
+          <p
+            class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider"
+          >
+            Multi-discipline coverage
+          </p>
         </div>
 
         <div class="flex items-center justify-center w-full">
@@ -365,8 +455,13 @@ const donutChartOptions = computed(() => ({
               :series="radarChartSeries"
             />
             <template #fallback>
-              <div class="h-[280px] w-full flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse">
-                <UIcon name="i-lucide-loader-2" class="w-6 h-6 animate-spin text-stone-400" />
+              <div
+                class="h-[280px] w-full flex items-center justify-center bg-stone-100/30 dark:bg-stone-900/10 rounded-xl border border-dashed border-stone-200 dark:border-stone-800 animate-pulse"
+              >
+                <UIcon
+                  name="i-lucide-loader-2"
+                  class="w-6 h-6 animate-spin text-stone-400"
+                />
               </div>
             </template>
           </ClientOnly>
@@ -374,40 +469,63 @@ const donutChartOptions = computed(() => ({
       </div>
 
       <!-- Recent Activity Timeline (Bespoke Handcrafted Timeline, NO SLOP) -->
-      <div class="lg:col-span-7 p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm flex flex-col justify-between">
+      <div
+        class="lg:col-span-7 p-6 bg-white dark:bg-stone-900/50 backdrop-blur-sm rounded-2xl border border-stone-200/50 dark:border-stone-800/50 shadow-sm flex flex-col justify-between"
+      >
         <div class="text-left mb-6">
-          <h2 class="text-base font-bold text-stone-900 dark:text-white tracking-tight">
+          <h2
+            class="text-base font-bold text-stone-900 dark:text-white tracking-tight"
+          >
             Recent Activity
           </h2>
-          <p class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider">Historical progress ledger</p>
+          <p
+            class="text-stone-400 text-[10px] uppercase font-semibold tracking-wider"
+          >
+            Historical progress ledger
+          </p>
         </div>
 
         <!-- Vertical Timeline Ledger -->
-        <div class="relative flex-grow space-y-6 text-left pl-6 before:absolute before:top-2 before:bottom-2 before:left-[11px] before:w-px before:bg-stone-200 dark:before:bg-stone-800">
+        <div
+          class="relative flex-grow space-y-6 text-left pl-6 before:absolute before:top-2 before:bottom-2 before:left-[11px] before:w-px before:bg-stone-200 dark:before:bg-stone-800"
+        >
           <div
             v-for="(act, idx) in recentActivities"
             :key="idx"
             class="relative space-y-1"
           >
             <!-- Timeline Node Indicator -->
-            <div :class="['absolute -left-[20px] top-1 h-3 w-3 rounded-full ring-4 ring-white dark:ring-stone-900 bg-amber-500', idx > 0 ? 'bg-stone-300 dark:bg-stone-700' : '']"></div>
-            
+            <div
+              :class="[
+                'absolute -left-[20px] top-1 h-3 w-3 rounded-full ring-4 ring-white dark:ring-stone-900 bg-amber-500',
+                idx > 0 ? 'bg-stone-300 dark:bg-stone-700' : '',
+              ]"
+            ></div>
+
             <div class="flex items-center justify-between gap-4">
-              <span class="text-sm font-bold text-stone-900 dark:text-white leading-tight">
+              <span
+                class="text-sm font-bold text-stone-900 dark:text-white leading-tight"
+              >
                 {{ act.title }}
               </span>
-              <span class="text-[10px] text-stone-400 dark:text-stone-500 font-medium whitespace-nowrap">
+              <span
+                class="text-[10px] text-stone-400 dark:text-stone-500 font-medium whitespace-nowrap"
+              >
                 {{ act.time }}
               </span>
             </div>
-            
+
             <div class="flex items-center gap-2">
-              <span class="text-[9px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500">
+              <span
+                class="text-[9px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500"
+              >
                 {{ act.category }}
               </span>
             </div>
 
-            <p class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed pt-0.5">
+            <p
+              class="text-xs text-stone-500 dark:text-stone-400 leading-relaxed pt-0.5"
+            >
               {{ act.desc }}
             </p>
           </div>
