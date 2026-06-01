@@ -43,6 +43,7 @@ const analyticsQuery = useQuery(
 );
 
 // Reactively determine if current color mode is dark
+// Reactively determine if current color mode is dark
 const isDark = computed(() => colorMode.value === "dark");
 
 // Metric Cards Data compiled dynamically from DB

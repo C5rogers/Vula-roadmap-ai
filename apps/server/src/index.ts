@@ -164,7 +164,18 @@ app.post("/ai", async (c) => {
   const systemText = systemMsg
     ? systemMsg.content || systemMsg.parts?.[0]?.text || ""
     : undefined;
-  const cleanMessages = uiMessages.filter((m: any) => m.role !== "system");
+  const cleanMessages = uiMessages
+    .filter((m: any) => m.role !== "system")
+    .map((m: any) => {
+      // If parts is missing, construct it from content to satisfy convertToModelMessages expectations
+      if (!m.parts) {
+        return {
+          ...m,
+          parts: [{ type: "text", text: m.content || "" }],
+        };
+      }
+      return m;
+    });
   const modelMessages = await convertToModelMessages(cleanMessages);
 
   try {
@@ -182,7 +193,12 @@ app.post("/ai", async (c) => {
         }
       },
     });
-    return result.toUIMessageStreamResponse();
+    // Return standard UI Message Stream for Chat, raw Text Stream for others (Magic Create, Voice, Roast)
+    if (roadmapId) {
+      return result.toUIMessageStreamResponse();
+    } else {
+      return result.toTextStreamResponse();
+    }
   } catch (error) {
     console.warn(
       "Failed to stream with gemini-2.5-flash, falling back to gemini-1.5-flash:",
@@ -203,7 +219,11 @@ app.post("/ai", async (c) => {
           }
         },
       });
-      return result.toUIMessageStreamResponse();
+      if (roadmapId) {
+        return result.toUIMessageStreamResponse();
+      } else {
+        return result.toTextStreamResponse();
+      }
     } catch (fallbackError) {
       console.error("AI stream completely failed:", fallbackError);
       return c.json({ error: "AI stream failed" }, 500);
@@ -215,4 +235,9 @@ app.get("/", (c) => {
   return c.text("OK");
 });
 
-export default app;
+// Export custom Bun.serve configuration to increase idleTimeout and prevent Bun's default 10s streaming timeout
+export default {
+  port: 3000,
+  idleTimeout: 255,
+  fetch: app.fetch,
+};

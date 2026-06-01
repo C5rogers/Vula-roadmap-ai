@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 
+const { $authClient } = useNuxtApp();
+const session = $authClient.useSession();
+
 const props = defineProps<{
   activeLessonTitle: string;
   contextPrompt?: string;
@@ -41,11 +44,13 @@ async function generateInterviewQuestion() {
       }
     ];
 
-    const res = await fetch(`${serverUrl}/ai`, {
+    const uId = session.value?.data?.user?.id || "";
+    const res = await fetch(`${serverUrl}/ai?userId=${uId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      credentials: "include",
       body: JSON.stringify({ messages }),
     });
 
@@ -108,23 +113,21 @@ async function submitAnswer() {
       }
     ];
 
-    const res = await fetch(`${serverUrl}/ai`, {
+    const uId = session.value?.data?.user?.id || "";
+    const res = await fetch(`${serverUrl}/ai?userId=${uId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      credentials: "include",
       body: JSON.stringify({ messages }),
     });
 
     if (!res.ok) throw new Error("API call failed");
 
     const text = await res.text();
-    const cleanedText = text
-      .replace(/0:"/g, "")
-      .replace(/\\n/g, " ")
-      .replace(/"/g, "")
-      .replace(/\\/g, "")
-      .trim();
+    
+    const cleanedText = text.trim();
 
     // Extract score
     const scoreMatch = cleanedText.match(/SCORE:\s*(\d+)/i);
@@ -166,125 +169,129 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="fixed inset-0 bg-stone-950/90 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 animate-fade-in text-stone-100">
-    <!-- Close Button -->
-    <UButton
-      icon="i-lucide-x"
-      color="neutral"
-      variant="ghost"
-      class="absolute top-6 right-6 rounded-xl hover:bg-red-900/20 hover:text-red-500"
-      size="xl"
-      @click="emit('close')"
-    />
+  <div class="fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in" @click.self="emit('close')">
+    <div class="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl shadow-2xl p-6 sm:p-8 max-w-2xl w-full relative animate-fade-in text-stone-900 dark:text-stone-100 flex flex-col items-center">
+      <!-- Close Button -->
+      <UButton
+        icon="i-lucide-x"
+        color="neutral"
+        variant="ghost"
+        class="absolute top-4 right-4 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800"
+        size="md"
+        @click="emit('close')"
+      />
 
-    <div class="max-w-2xl w-full text-center space-y-6">
-      <div class="space-y-1">
-        <span class="text-xs font-black text-red-500 uppercase tracking-widest flex items-center justify-center gap-1.5 animate-pulse">
-          <UIcon name="i-lucide-flame" /> Hard Modality
-        </span>
-        <h2 class="text-3xl font-extrabold text-white tracking-tight">Roast My Knowledge</h2>
-        <p class="text-stone-400 text-xs">A brutal mock interview with an unforgiving senior engineer.</p>
-      </div>
-
-      <!-- --- 1. Loading State --- -->
-      <div v-if="status === 'loading'" class="py-12 flex flex-col items-center gap-4">
-        <UIcon name="i-lucide-loader-2" class="h-10 w-10 animate-spin text-red-500" />
-        <span class="text-xs text-stone-400 font-bold uppercase tracking-wider">Formulating brutal interview question...</span>
-      </div>
-
-      <!-- --- 2. Question State --- -->
-      <div v-else-if="status === 'question'" class="space-y-6 text-left animate-fade-in">
-        <!-- Countdown Timer -->
-        <div class="text-center">
-          <div class="text-6xl font-black text-red-500 font-mono tracking-tight tabular-nums">
-            00:{{ timeLeft.toString().padStart(2, '0') }}
-          </div>
-          <span class="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Time Remaining to formulated argument</span>
-        </div>
-
-        <!-- Question Box -->
-        <div class="p-5 bg-red-950/10 border border-red-900/30 rounded-2xl space-y-2">
-          <span class="text-[10px] font-black text-red-500 uppercase tracking-wider flex items-center gap-1">
-            <UIcon name="i-lucide-help-circle" /> Question
+      <div class="w-full text-center space-y-6 flex flex-col items-center justify-center">
+        <div class="space-y-1">
+          <span class="text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-widest flex items-center justify-center gap-1.5 animate-pulse">
+            <UIcon name="i-lucide-flame" /> Hard Modality
           </span>
-          <p class="text-sm font-semibold text-white leading-relaxed">{{ mockQuestion }}</p>
-        </div>
-
-        <!-- Answer box -->
-        <div class="space-y-3">
-          <UTextarea
-            v-model="userAnswer"
-            placeholder="Type your explanation or core thesis here. Senior engineer is watching..."
-            :rows="5"
-            class="w-full bg-stone-900/50 border border-stone-800 text-stone-100 rounded-xl"
-          />
-          <div class="flex justify-end">
-            <UButton
-              color="error"
-              icon="i-lucide-flame"
-              class="rounded-xl px-6 py-2.5 font-bold hover:scale-[1.02] active:scale-95 transition-all text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-950/30 cursor-pointer"
-              @click="submitAnswer"
-            >
-              Submit Answer
-            </UButton>
-          </div>
-        </div>
-      </div>
-
-      <!-- --- 3. Roasting Processing State --- -->
-      <div v-else-if="status === 'roasting'" class="py-12 flex flex-col items-center gap-4">
-        <UIcon name="i-lucide-flame" class="h-10 w-10 animate-bounce text-red-500" />
-        <span class="text-xs text-stone-400 font-bold uppercase tracking-wider animate-pulse">Senior engineer is analyzing your response... prepare to be roasted</span>
-      </div>
-
-      <!-- --- 4. Result Reveal State --- -->
-      <div v-else-if="status === 'result'" class="space-y-6 animate-fade-in text-left">
-        <!-- Giant Score Gauge indicator -->
-        <div class="flex flex-col items-center justify-center text-center p-6 bg-red-950/10 border border-red-900/20 rounded-2xl space-y-3 relative overflow-hidden">
-          <div class="absolute -top-12 -left-12 w-32 h-32 bg-red-500/5 blur-2xl rounded-full"></div>
-          <div class="absolute -bottom-12 -right-12 w-32 h-32 bg-red-500/5 blur-2xl rounded-full"></div>
-          
-          <span class="text-[10px] font-black text-red-500 uppercase tracking-widest relative z-10">Brutal Assessment Score</span>
-          <div class="text-7xl font-black text-red-500 relative z-10 tabular-nums">
-            {{ score }}<span class="text-lg text-stone-500 font-semibold">/100</span>
-          </div>
-          
-          <!-- Rating badge -->
-          <UBadge
-            :label="score >= 80 ? 'CRITICAL SUCCESS' : score >= 50 ? 'NAIVE ATTEMPT' : 'ABSOLUTE SLOP'"
-            :color="score >= 80 ? 'success' : score >= 50 ? 'warning' : 'error'"
-            size="sm"
-            class="relative z-10 font-bold tracking-wider"
-          />
-        </div>
-
-        <!-- Roast text block -->
-        <div class="p-6 bg-stone-900/80 border border-stone-800 rounded-2xl space-y-3">
-          <span class="text-[10px] font-black text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-            <UIcon name="i-lucide-meh" /> Senior Roast Letter
-          </span>
-          <p class="text-sm text-stone-200 leading-relaxed font-medium italic">
-            "{{ roastReply }}"
+          <h2 class="text-2xl font-black text-stone-900 dark:text-white tracking-tight">Roast My Knowledge</h2>
+          <p class="text-stone-500 dark:text-stone-400 text-xs leading-relaxed">
+            {{ activeLessonTitle ? `Active Lesson: ${activeLessonTitle}` : "A brutal mock interview with an unforgiving senior engineer." }}
           </p>
         </div>
 
-        <div class="flex justify-center gap-3">
-          <UButton
-            color="neutral"
-            variant="ghost"
-            class="rounded-xl hover:bg-stone-800"
-            @click="generateInterviewQuestion"
-          >
-            Try Another Question
-          </UButton>
-          <UButton
-            color="error"
-            variant="solid"
-            class="rounded-xl font-bold bg-red-600 hover:bg-red-700 cursor-pointer"
-            @click="emit('close')"
-          >
-            Back to Syllabus
-          </UButton>
+        <!-- --- 1. Loading State --- -->
+        <div v-if="status === 'loading'" class="py-12 flex flex-col items-center gap-4">
+          <UIcon name="i-lucide-loader-2" class="h-10 w-10 animate-spin text-amber-500" />
+          <span class="text-xs text-stone-500 dark:text-stone-400 font-bold uppercase tracking-wider">Formulating brutal interview question...</span>
+        </div>
+
+        <!-- --- 2. Question State --- -->
+        <div v-else-if="status === 'question'" class="space-y-6 text-left animate-fade-in w-full">
+          <!-- Countdown Timer -->
+          <div class="text-center">
+            <div class="text-5xl font-black text-amber-500 font-mono tracking-tight tabular-nums">
+              00:{{ timeLeft.toString().padStart(2, '0') }}
+            </div>
+            <span class="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Time Remaining to formulate argument</span>
+          </div>
+
+          <!-- Question Box (Beautiful Amber theme matching Rest of Roadie) -->
+          <div class="p-5 bg-amber-500/5 border border-amber-500/20 rounded-2xl space-y-2">
+            <span class="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase tracking-wider flex items-center gap-1">
+              <UIcon name="i-lucide-help-circle" /> Question
+            </span>
+            <div class="text-sm font-semibold text-stone-900 dark:text-white leading-relaxed whitespace-pre-line">{{ mockQuestion }}</div>
+          </div>
+
+          <!-- Answer box -->
+          <div class="space-y-3 w-full">
+            <UTextarea
+              v-model="userAnswer"
+              placeholder="Type your explanation or core thesis here. Senior engineer is watching..."
+              :rows="5"
+              class="w-full rounded-xl"
+            />
+            <div class="flex justify-end">
+              <UButton
+                color="primary"
+                icon="i-lucide-flame"
+                class="rounded-xl px-6 py-2.5 font-bold hover:scale-[1.02] active:scale-95 transition-all text-stone-950 cursor-pointer shadow-md shadow-amber-500/10"
+                @click="submitAnswer"
+              >
+                Submit Answer
+              </UButton>
+            </div>
+          </div>
+        </div>
+
+        <!-- --- 3. Roasting Processing State --- -->
+        <div v-else-if="status === 'roasting'" class="py-12 flex flex-col items-center gap-4">
+          <UIcon name="i-lucide-flame" class="h-10 w-10 animate-bounce text-amber-500" />
+          <span class="text-xs text-stone-500 dark:text-stone-400 font-bold uppercase tracking-wider animate-pulse">Analyzing your response... prepare to be roasted</span>
+        </div>
+
+        <!-- --- 4. Result Reveal State --- -->
+        <div v-else-if="status === 'result'" class="space-y-6 animate-fade-in text-left w-full">
+          <!-- Giant Score Gauge indicator -->
+          <div class="flex flex-col items-center justify-center text-center p-6 bg-amber-500/5 border border-amber-500/20 rounded-2xl space-y-3 relative overflow-hidden">
+            <div class="absolute -top-12 -left-12 w-32 h-32 bg-amber-500/5 blur-2xl rounded-full"></div>
+            <div class="absolute -bottom-12 -right-12 w-32 h-32 bg-amber-500/5 blur-2xl rounded-full"></div>
+            
+            <span class="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase tracking-widest relative z-10">Brutal Assessment Score</span>
+            <div class="text-7xl font-black text-amber-500 relative z-10 tabular-nums">
+              {{ score }}<span class="text-lg text-stone-500 font-semibold">/100</span>
+            </div>
+            
+            <!-- Rating badge -->
+            <UBadge
+              :label="score >= 80 ? 'CRITICAL SUCCESS' : score >= 50 ? 'NAIVE ATTEMPT' : 'ABSOLUTE SLOP'"
+              :color="score >= 80 ? 'success' : score >= 50 ? 'warning' : 'error'"
+              size="sm"
+              class="relative z-10 font-bold tracking-wider text-[9px]"
+            />
+          </div>
+
+          <!-- Roast text block -->
+          <div class="p-6 bg-stone-50 dark:bg-stone-950/60 border border-stone-200 dark:border-stone-800/80 rounded-2xl space-y-3">
+            <span class="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase tracking-wider flex items-center gap-1.5">
+              <UIcon name="i-lucide-meh" /> Senior Roast Letter
+            </span>
+            <p class="text-sm text-stone-850 dark:text-stone-200 leading-relaxed font-medium italic">
+              "{{ roastReply }}"
+            </p>
+          </div>
+
+          <div class="flex justify-center gap-3">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              class="rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800"
+              @click="generateInterviewQuestion"
+            >
+              Try Another Question
+            </UButton>
+            <UButton
+              color="primary"
+              variant="solid"
+              class="rounded-xl font-bold text-stone-950 cursor-pointer shadow-md shadow-amber-500/10"
+              @click="emit('close')"
+            >
+              Back to Syllabus
+            </UButton>
+          </div>
         </div>
       </div>
     </div>
@@ -292,8 +299,4 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Red theme overwrites */
-:deep(.u-input) {
-  --ui-primary: var(--color-red-500);
-}
 </style>

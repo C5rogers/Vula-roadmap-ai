@@ -109,7 +109,9 @@ const handleSignOut = async () => {
       </nav>
 
       <!-- Sign Out at bottom of sidebar -->
-      <div class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
+      <div
+        class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50"
+      >
         <UButton
           variant="ghost"
           color="neutral"
@@ -125,9 +127,9 @@ const handleSignOut = async () => {
     <div class="flex flex-col flex-grow min-w-0 overflow-hidden">
       <!-- TOP BAR (Mobile/Desktop color toggle & mobile menu trigger) -->
       <header
-        class="h-16 flex items-center justify-between px-6 bg-white dark:bg-stone-900 border-b border-stone-200 dark:border-stone-800 z-20"
+        class="h-16 flex items-center justify-between px-6 md:px-10 bg-white dark:bg-stone-900 border-b border-stone-200 dark:border-stone-800 z-20 shrink-0"
       >
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-6">
           <!-- Mobile Menu Toggle Button -->
           <UButton
             icon="i-lucide-menu"
@@ -137,40 +139,52 @@ const handleSignOut = async () => {
             @click="isMobileMenuOpen = true"
           />
           <h2
-            class="text-sm font-semibold tracking-tight text-stone-500 dark:text-stone-400 uppercase"
+            class="text-[13px] md:text-sm font-bold tracking-[0.2em] text-stone-500 dark:text-stone-400 uppercase"
           >
             {{ activePageLabel }}
           </h2>
         </div>
 
-        <div class="flex items-center gap-4">
-          <UColorModeButton />
-          
+        <div class="flex items-center gap-6 md:gap-8">
+          <UColorModeButton class="scale-110 transition-transform" />
+
           <ClientOnly>
             <!-- User Profile in top right -->
-            <div v-if="session?.data" class="flex items-center gap-3">
-              <div class="hidden sm:flex flex-col text-right">
-                <span class="text-xs font-semibold text-stone-700 dark:text-stone-200">
+            <div v-if="session?.data" class="flex items-center gap-4">
+              <div class="hidden sm:flex flex-col text-right justify-center">
+                <span
+                  class="text-sm font-bold text-stone-800 dark:text-stone-100 leading-tight"
+                >
                   {{ session.data.user.name }}
                 </span>
-                <span class="text-[10px] text-stone-400 dark:text-stone-500">
+                <span
+                  class="text-[11px] text-stone-500 dark:text-stone-400 font-medium leading-tight"
+                >
                   {{ session.data.user.email }}
                 </span>
               </div>
               <UAvatar
                 :src="session.data.user.image || undefined"
                 :alt="session.data.user.name || undefined"
-                size="sm"
-                class="ring-1 ring-stone-200 dark:ring-stone-800"
+                size="md"
+                class="ring-2 ring-stone-100 dark:ring-stone-800 shadow-sm"
               />
             </div>
             <template #fallback>
-              <div class="flex items-center gap-3">
-                <div class="hidden sm:flex flex-col gap-1 items-end">
-                  <div class="h-3 w-16 rounded bg-stone-200 dark:bg-stone-800 animate-pulse" />
-                  <div class="h-2 w-24 rounded bg-stone-200 dark:bg-stone-800 animate-pulse" />
+              <div class="flex items-center gap-4">
+                <div
+                  class="hidden sm:flex flex-col gap-1.5 items-end justify-center"
+                >
+                  <div
+                    class="h-3.5 w-24 rounded bg-stone-200 dark:bg-stone-800 animate-pulse"
+                  />
+                  <div
+                    class="h-2.5 w-32 rounded bg-stone-200 dark:bg-stone-800 animate-pulse"
+                  />
                 </div>
-                <div class="h-8 w-8 rounded-full bg-stone-200 dark:bg-stone-800 animate-pulse" />
+                <div
+                  class="h-10 w-10 rounded-full bg-stone-200 dark:bg-stone-800 animate-pulse"
+                />
               </div>
             </template>
           </ClientOnly>
@@ -243,7 +257,9 @@ const handleSignOut = async () => {
             </div>
 
             <!-- Sign Out bottom bar for mobile drawer -->
-            <div class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
+            <div
+              class="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50"
+            >
               <UButton
                 variant="ghost"
                 color="neutral"
